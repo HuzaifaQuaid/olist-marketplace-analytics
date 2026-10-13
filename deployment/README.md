@@ -11,3 +11,7 @@ This snapshot is provided under the same license for noncommercial educational u
 License: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 The dashboard shows historical observations, not live marketplace transactions.
+
+The committed `artifacts/` reports (late-delivery model, forecast, recommender
+evaluation, repurchase model) were built from this snapshot, so the hosted app
+opens with every workspace populated. Raw analysis code is in `src/marketplace/`.
