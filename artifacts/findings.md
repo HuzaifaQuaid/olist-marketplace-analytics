@@ -26,7 +26,7 @@ Across 7 rolling one-month backtests, the best method by RMSE was **naive_last_v
 
 ### Recommendations
 
-On a temporal holdout with **417** evaluable repeat customers, content-based recall@10 was **2.2%** versus **1.7%** for popularity, with MAP@10 **0.011** versus **0.007**. Absolute values are low because Olist has little repeat purchasing and no browsing or basket signal.
+On a temporal holdout with **228** evaluable repeat customers, content-based recall@10 was **2.2%** versus **2.6%** for popularity, with MAP@10 **0.007** versus **0.014**. The better measured ranking in this holdout was **popularity**. The evaluation uses only products and popularity known in the training period; absolute scores remain low because Olist has little repeat purchasing and no browsing signal.
 
 ### Repurchase model
 

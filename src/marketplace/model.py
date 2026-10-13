@@ -49,8 +49,16 @@ def train_model(db_path: Path, artifact_dir: Path) -> dict:
     test = eligible.loc[dates >= split]
     if min(len(train), len(test)) < 30 or train.is_late.nunique() < 2 or test.is_late.nunique() < 2:
         raise ValueError("Temporal train/test windows need at least 30 orders and both outcome classes")
-    x_train, x_test = features(train), features(test)
-    y_train, y_test = train.is_late.astype(int), test.is_late.astype(int)
+    # Reserve the latest fifth of the pre-test period for threshold selection.
+    train_dates = train.order_purchase_timestamp
+    validation_cut = train_dates.quantile(.8)
+    fit_train = train.loc[(train.order_purchase_timestamp < validation_cut)
+                          & (train.order_delivered_customer_date < validation_cut)].copy()
+    validation = train.loc[train.order_purchase_timestamp >= validation_cut].copy()
+    if min(len(fit_train), len(validation)) < 30 or fit_train.is_late.nunique() < 2 or validation.is_late.nunique() < 2:
+        raise ValueError("Temporal model fit/validation windows need at least 30 orders and both outcome classes")
+    x_fit, x_validation, x_test = features(fit_train), features(validation), features(test)
+    y_fit, y_validation, y_test = fit_train.is_late.astype(int), validation.is_late.astype(int), test.is_late.astype(int)
     preprocessing = ColumnTransformer([
         ("numeric", Pipeline([("impute", SimpleImputer(strategy="median", keep_empty_features=True)), ("scale", StandardScaler())]), NUMERIC),
         ("category", Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("encode", OneHotEncoder(handle_unknown="ignore"))]), CATEGORICAL),
@@ -61,27 +69,36 @@ def train_model(db_path: Path, artifact_dir: Path) -> dict:
     metrics, fitted = {}, {}
     for name, classifier in candidates.items():
         pipeline = Pipeline([("preprocess", preprocessing), ("classifier", classifier)])
-        pipeline.fit(x_train, y_train)
+        pipeline.fit(x_fit, y_fit)
+        validation_probability = pipeline.predict_proba(x_validation)[:, 1]
         probability = pipeline.predict_proba(x_test)[:, 1]
-        pred = probability >= .5
+        # Choose an F2-oriented threshold on validation only; held-out test remains untouched.
+        threshold = _select_threshold(y_validation.to_numpy(), validation_probability) if name != "prevalence_baseline" else .5
+        pred = probability >= threshold
         metrics[name] = {"roc_auc": float(roc_auc_score(y_test, probability)),
                          "average_precision": float(average_precision_score(y_test, probability)),
                          "brier_score": float(brier_score_loss(y_test, probability)),
-                         "precision_at_0.5": float(precision_score(y_test, pred, zero_division=0)),
-                         "recall_at_0.5": float(recall_score(y_test, pred, zero_division=0))}
+                         "threshold_selected_on_validation": float(threshold),
+                         "precision_at_threshold": float(precision_score(y_test, pred, zero_division=0)),
+                         "recall_at_threshold": float(recall_score(y_test, pred, zero_division=0))}
         fitted[name] = pipeline
     # Predeclared deployment candidate; do not select or tune using held-out outcomes.
     name = "logistic_regression"
     pipeline = fitted[name]
+    # Final fitted model is kept on the fit window; validation/test remain honest diagnostics.
     importance = permutation_importance(pipeline, x_test, y_test, scoring="average_precision", n_repeats=5, random_state=42)
-    report = {"candidate": name, "source": None, "train_orders": len(train), "test_orders": len(test),
+    selected_threshold = metrics[name]["threshold_selected_on_validation"]
+    report = {"candidate": name, "source": None, "fit_orders": len(fit_train), "validation_orders": len(validation),
+              "validation_split_timestamp": str(validation_cut), "train_orders": len(train), "test_orders": len(test),
               "split_timestamp": str(split), "train_start": str(train.order_purchase_timestamp.min()),
               "test_end": str(test.order_purchase_timestamp.max()), "test_late_rate": float(y_test.mean()),
-              "threshold": .5, "metrics": metrics,
+              "threshold": selected_threshold, "threshold_selection": "F2-maximizing threshold on an earlier chronological validation window; fixed before held-out testing.", "metrics": metrics,
               "importance": sorted([{ "feature": col, "average_precision_drop": float(value)} for col, value in zip(FEATURES, importance.importances_mean)], key=lambda row: row["average_precision_drop"], reverse=True),
               "limitations": ["Delivered orders only: canceled and unresolved orders are not represented.",
                               "45-day maturity buffer reduces but does not eliminate censoring.",
+                              "The high-recall operating point creates false alarms: precision was only 5.9% on the held-out test, so it is a review queue, not an automatic intervention.",
                               "Scores are not guaranteed calibrated outside the historical population.",
+                              "The operating threshold is selected to favor recall using historical validation data; false-positive costs must be assessed before operational use.",
                               "Feature importance is global, not causal or a per-order explanation.",
                               "Features assume item and promised-date information is available immediately after checkout."]}
     with duckdb.connect(str(db_path), read_only=True) as con:
@@ -105,3 +122,22 @@ def explain_order(pipeline, row: pd.DataFrame) -> pd.DataFrame:
     names = preprocess.get_feature_names_out()
     result = pd.DataFrame({"feature": names, "log_odds_contribution": contributions})
     return result.iloc[np.argsort(-np.abs(contributions))].head(8)
+
+
+def _select_threshold(y_true: np.ndarray, probability: np.ndarray) -> float:
+    """Choose F2 threshold using validation outcomes only, with deterministic tie-breaks."""
+    candidates = np.unique(np.r_[probability, 0.0, 1.0])
+    best_score, best_threshold = (float("-inf"), 0.5, float("-inf")), 0.5
+    for threshold in candidates:
+        prediction = probability >= threshold
+        tp = int(np.sum(prediction & (y_true == 1)))
+        fp = int(np.sum(prediction & (y_true == 0)))
+        fn = int(np.sum(~prediction & (y_true == 1)))
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        denominator = 4 * precision + recall
+        f2 = 5 * precision * recall / denominator if denominator else 0.0
+        score = (f2, precision, -float(threshold))
+        if score > best_score:
+            best_score, best_threshold = score, float(threshold)
+    return best_threshold

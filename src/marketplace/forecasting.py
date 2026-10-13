@@ -118,6 +118,7 @@ def train_forecast(db_path: Path, artifact_dir: Path) -> dict:
         coverage_80 = float(np.mean((subset.actual >= subset.prediction + np.quantile(errors, .10)) & (subset.actual <= subset.prediction + np.quantile(errors, .90))))
         metrics[name]["interval80_coverage"] = coverage_80
         intervals[name] = errors
+    champion = min(metrics, key=lambda name: metrics[name]["rmse"])
     values = series.item_sales.to_numpy(dtype=float)
     next_position = len(values)
     next_month = (series.month.iloc[-1] + pd.offsets.MonthBegin(1))
@@ -133,6 +134,8 @@ def train_forecast(db_path: Path, artifact_dir: Path) -> dict:
               "complete_months": len(series), "series_start": str(series.month.iloc[0].date()),
               "series_end": str(series.month.iloc[-1].date()), "min_train_months": min_train,
               "next_month": str(next_month.date()), "metrics": metrics, "forecast": forecast,
+              "selected_method": champion,
+              "selection_rule": "Lowest rolling-origin one-step RMSE; all candidate rankings are reported.",
               "recent_actuals": [{"month": str(row.month.date()), "item_sales": float(row.item_sales), "orders": int(row.orders)}
                                  for row in series.tail(6).itertuples()],
               "limitations": ["Olist has under two years of complete months, so seasonality is estimated from at most one prior year and is weak evidence.",

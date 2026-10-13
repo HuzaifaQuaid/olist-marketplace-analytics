@@ -53,6 +53,8 @@
       "high_95": 1093680.1468563094
     }
   },
+  "selected_method": "naive_last_value",
+  "selection_rule": "Lowest rolling-origin one-step RMSE; all candidate rankings are reported.",
   "recent_actuals": [
     {
       "month": "2018-03-01",

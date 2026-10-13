@@ -94,7 +94,7 @@ Boundary months may be partial. Category/seller order counts are not additive be
 
 Prediction point: **immediately after checkout**, assuming promised delivery and basket details are available. Inputs are order value, freight, item/seller counts, product weight, category, seller/customer state, interstate share, purchase calendar features and promised interval. Actual delivery date, carrier handoff, review score and post-purchase payment events are **not inputs**.
 
-An 80/20 purchase-time split is used, not a random split. Training outcomes must already be observed before the test period. Purchases within 45 days of the final purchase timestamp are excluded to reduce right-censoring. Three experiments share preprocessing learned on training data: prevalence baseline, logistic regression and random forest. Logistic regression is the predeclared scoring candidate, not chosen from test results. Average precision, ROC-AUC, Brier score, precision and recall at a fixed 0.5 threshold are saved. No performance guarantee is made.
+An 80/20 purchase-time split is used, not a random split. Training outcomes must already be observed before the test period. Purchases within 45 days of the final purchase timestamp are excluded to reduce right-censoring. An earlier chronological validation slice selects an F2 threshold (favoring recall); the held-out test remains untouched until final evaluation. The selected high-recall operating point catches more late orders but creates many false alarms, so this is a review queue rather than an automatic intervention. Three experiments share preprocessing learned on the fit window: prevalence baseline, logistic regression and random forest. Logistic regression is the predeclared scoring candidate, not chosen from test results. Average precision, ROC-AUC, Brier score, precision and recall at validation-selected thresholds are saved. No performance guarantee is made.
 
 Global permutation importance measures held-out average-precision changes. Per-order logistic contributions are additive log-odds terms plus the model intercept, **not causal explanations**. Only locally generated trusted `joblib` artifacts should be loaded.
 
@@ -108,7 +108,7 @@ Complete calendar months only; leading and trailing partial months are dropped. 
 
 ## Recommendation design
 
-A popularity baseline and a content-based model (category plus scaled physical attributes, cosine similarity computed on demand so no product-by-product matrix is stored). Evaluation is a temporal holdout: build from earlier purchases, then test whether a customer's later purchases appear in the top-K, comparing content-based against popularity with recall/precision/MAP@K. Cold-start products and unknown customers fall back to popularity. Olist's sparse repeat purchasing means few customers are evaluable and collaborative filtering is not attempted.
+A popularity baseline and a content-based model (category plus scaled physical attributes, cosine similarity computed on demand so no product-by-product matrix is stored). Evaluation is a temporal holdout: fit catalog and popularity only on earlier purchases; recommend only products known before the holdout; exclude items the customer already bought; then compare later purchases using standard Recall@K (hits / relevant items), Precision@K and MAP@K. New products are counted as cold-start and excluded from warm-start ranking metrics; unknown customers fall back to popularity. Olist's sparse repeat purchasing means few customers are evaluable and collaborative filtering is not attempted.
 
 ## Repurchase design
 
@@ -148,14 +148,15 @@ Tests cover grain and monetary conservation (including intentionally multi-payme
 - **Sales foundation:** R$13.49M item sales across 98,199 orders; AOV R$137.42; 6.8% of valid delivered orders late.
 - **Investigation:** the adjusted late-delivery review penalty (−1.96 points) barely differs from the unadjusted gap (−2.02), so value, freight, category and region do not explain it away. Still observational.
 - **Forecasting:** with 19 complete months, the naive baseline (MAPE 7.0%) beats the calendar/lag model (13.1%). A short history cannot support confident seasonality.
-- **Recommendations:** content-based recall@10 (2.2%) edges popularity (1.7%) on 417 evaluable repeat customers; absolute quality is low on sparse data.
+- **Recommendations:** strict temporal warm-start evaluation on 228 repeat customers; popularity currently outperforms content-based ranking (MAP@10 0.014 vs 0.007). Both absolute scores are low on sparse data.
+- **Late-delivery model:** the untouched temporal test gives random forest ROC-AUC 0.744 / average precision 0.101, versus 0.035 prevalence AP. A validation-chosen high-recall cutoff reaches 77% recall but only 6.2% precision: use as a manual review queue, not an automatic decision.
 - **Repurchase:** 90-day repeat base rate 2.3%; logistic ROC-AUC 0.60 with 1.8x top-decile lift and reasonable calibration — usable for ranking, not for promising outcomes.
 
 ## Future work
 
-1. **Threshold selection and monitoring** for the late-delivery model using a validation slice (never the held-out test), plus drift checks.
+1. **Threshold operations:** the chosen logistic high-recall cutoff finds ~79% of late deliveries but only ~5.9% precision on the held-out test. A human triage policy or cheaper second-stage check is needed before rollout; false-positive costs matter. Random forest ranks better, but the threshold must be reselected on validation before deployment.
 2. **Richer forecasting** when more history exists: proper seasonal models, promotion/holiday regressors, and model-based predictive intervals.
-3. **Basket-aware recommendations** and a small collaborative-filtering experiment, reported only if observed overlap supports it.
+3. **Recommendation improvement:** current temporal warm-start evaluation shows popularity wins; richer catalog text, basket data, inventory and online experiments would be needed to justify personalised recommendations.
 4. **Causal designs** (matching or difference-in-differences around seller or logistics changes) to move beyond adjusted association.
 5. **Analyst evaluation harness** with a labelled question set, so grounding and refusal behaviour are measured rather than assumed.
 

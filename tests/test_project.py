@@ -87,6 +87,9 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("review_score", FEATURES)
         self.assertGreater(report["test_orders"], 30)
         self.assertEqual(report["source"], "synthetic")
+        self.assertIn("threshold_selected_on_validation", report["metrics"]["logistic_regression"])
+        self.assertGreaterEqual(report["threshold"], 0)
+        self.assertLessEqual(report["threshold"], 1)
         text = generate_report(self.db, self.root / "findings.md")
         self.assertIn("Synthetic demonstration only", text)
 
@@ -149,6 +152,16 @@ class StageTests(unittest.TestCase):
         self.assertEqual(len(unknown), 4)
         self.assertTrue(model.similar_to_product("missing", 3).reason.str.contains("popularity").all())
         self.assertIn("metrics", self.recommender)
+        self.assertIn("train_catalog_size", self.recommender)
+        self.assertIn("test_products_excluded_as_cold_start", self.recommender)
+        self.assertTrue(any("training window" in limitation for limitation in self.recommender["limitations"]))
+
+    def test_ranking_recall_is_fraction_not_hit_indicator(self):
+        from marketplace.recommender import _rank_metrics
+        recall, precision, average_precision = _rank_metrics(["a", "b", "c", "d"], {"b", "d", "x", "y"}, 4)
+        self.assertAlmostEqual(recall, .5)
+        self.assertAlmostEqual(precision, .5)
+        self.assertGreater(average_precision, 0)
 
     def test_repurchase_label_respects_horizon_and_censoring(self):
         table = first_purchase_table(self.orders, 90)

@@ -158,9 +158,17 @@ class Analyst:
             table = self.catalog.loc[self.catalog.product_id.isin(popular)]
         report = load_recommender_report(self.artifact_dir) if self.artifact_dir else None
         columns = ["product_id", "category", "mean_price", "orders"]
+        metric_note = None
+        if report and report.get("available"):
+            metrics = report["metrics"]
+            metric_note = ("Temporal holdout MAP@10: popularity "
+                           f"{metrics['popularity']['map_at_k']:.3f}; content-based "
+                           f"{metrics['content_based']['map_at_k']:.3f} across "
+                           f"{report['customers_with_repeat_history']} warm-start customers.")
         return {"answer": f"Top recommendations: {', '.join(table.product_id.head(5))}.",
                 "evidence": {"recommendations": table[[column for column in columns if column in table]].round(2).to_dict("records"),
                              "evaluation": report.get("metrics") if report else None},
+                "evaluation_note": metric_note,
                 "caveats": report["limitations"] if report else ["No evaluation report is available yet."]}
 
     def _repurchase(self, params: dict) -> dict:
@@ -169,7 +177,8 @@ class Analyst:
             return {"answer": "No repurchase model artifact is available. Build it first.", "evidence": {}, "caveats": []}
         metrics = report["metrics"]["logistic_regression"]
         return {"answer": f"Repurchase within {report['horizon_days']} days has a base rate of {report['overall_repeat_rate']:.1%}. "
-                          f"The logistic model reaches ROC-AUC {metrics['roc_auc']:.2f} and {metrics['lift_at_top_decile']:.1f}x lift in the top decile.",
+                          f"The logistic model reaches ROC-AUC {metrics['roc_auc']:.2f} and {metrics['lift_at_top_decile']:.1f}x lift in the top decile. "
+                          "This is a modest ranking signal, not a guarantee that any customer will return.",
                 "evidence": {"metrics": report["metrics"], "calibration": report["calibration"],
                              "horizon_days": report["horizon_days"], "matured_customers": report["matured_customers"]},
                 "caveats": report["limitations"]}

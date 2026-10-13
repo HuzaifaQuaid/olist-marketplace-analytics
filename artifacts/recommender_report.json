@@ -2,26 +2,29 @@
   "available": true,
   "k": 10,
   "cutoff": "2018-05-24 10:43:37",
-  "customers_with_repeat_history": 417,
+  "customers_with_repeat_history": 228,
   "train_purchases": 89680,
   "test_purchases": 22421,
   "metrics": {
     "popularity": {
-      "evaluable_customers": 417,
-      "recall_at_k": 0.016786570743405275,
-      "precision_at_k": 0.0016786570743405277,
-      "map_at_k": 0.007360778044231282
+      "evaluable_customers": 228,
+      "recall_at_k": 0.02631578947368421,
+      "precision_at_k": 0.0030701754385964917,
+      "map_at_k": 0.013523391812865498
     },
     "content_based": {
-      "evaluable_customers": 417,
-      "recall_at_k": 0.02158273381294964,
-      "precision_at_k": 0.002398081534772182,
-      "map_at_k": 0.010658140154543033
+      "evaluable_customers": 228,
+      "recall_at_k": 0.021929824561403508,
+      "precision_at_k": 0.0021929824561403508,
+      "map_at_k": 0.007466583124477861
     }
   },
   "catalog_size": 32729,
+  "train_catalog_size": 26418,
+  "test_products_excluded_as_cold_start": 6311,
   "cold_start_products": 600,
   "limitations": [
+    "Evaluation is restricted to customers with earlier observed purchases and later purchases of products known in the training window; this is a warm-start evaluation, not new-customer performance.",
     "Olist has very little repeat purchasing, so only a small share of customers can be evaluated and results are unstable.",
     "Both baselines ignore price, availability and business constraints; a real system needs ranking objectives and online tests.",
     "Similarity uses category and physical attributes only: there is no browsing, click or basket-overlap signal.",

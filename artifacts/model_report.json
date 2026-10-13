@@ -1,90 +1,99 @@
 {
   "candidate": "logistic_regression",
   "source": "olist",
+  "fit_orders": 56072,
+  "validation_orders": 15026,
+  "validation_split_timestamp": "2018-03-13 07:13:56.800000",
   "train_orders": 75128,
   "test_orders": 19294,
   "split_timestamp": "2018-05-26 18:17:10.200000",
   "train_start": "2016-09-15 12:16:38",
   "test_end": "2018-08-29 15:00:37",
   "test_late_rate": 0.03493313983621851,
-  "threshold": 0.5,
+  "threshold": 0.04667566123069174,
+  "threshold_selection": "F2-maximizing threshold on an earlier chronological validation window; fixed before held-out testing.",
   "metrics": {
     "prevalence_baseline": {
       "roc_auc": 0.5,
       "average_precision": 0.03493313983621851,
-      "brier_score": 0.03501835448300809,
-      "precision_at_0.5": 0.0,
-      "recall_at_0.5": 0.0
+      "brier_score": 0.03398685822552732,
+      "threshold_selected_on_validation": 0.5,
+      "precision_at_threshold": 0.0,
+      "recall_at_threshold": 0.0
     },
     "logistic_regression": {
-      "roc_auc": 0.6909711885691338,
-      "average_precision": 0.07337160545758453,
-      "brier_score": 0.03710343669992879,
-      "precision_at_0.5": 0.2857142857142857,
-      "recall_at_0.5": 0.002967359050445104
+      "roc_auc": 0.7013493754521957,
+      "average_precision": 0.06834915744463742,
+      "brier_score": 0.033993299065474845,
+      "threshold_selected_on_validation": 0.04667566123069174,
+      "precision_at_threshold": 0.058713166317183534,
+      "recall_at_threshold": 0.7893175074183977
     },
     "random_forest": {
-      "roc_auc": 0.48370988407857285,
-      "average_precision": 0.04028470331425391,
-      "brier_score": 0.034682733941117046,
-      "precision_at_0.5": 0.0,
-      "recall_at_0.5": 0.0
+      "roc_auc": 0.7435203762904505,
+      "average_precision": 0.10120158637013103,
+      "brier_score": 0.032940610777517206,
+      "threshold_selected_on_validation": 0.047061055039502316,
+      "precision_at_threshold": 0.06221692491060787,
+      "recall_at_threshold": 0.7744807121661721
     }
   },
   "importance": [
     {
       "feature": "promised_days",
-      "average_precision_drop": 0.03962334880831288
+      "average_precision_drop": 0.03133715749682462
     },
     {
       "feature": "customer_state",
-      "average_precision_drop": 0.013273354956910354
-    },
-    {
-      "feature": "seller_state",
-      "average_precision_drop": 0.009219613825633839
+      "average_precision_drop": 0.009028297880124011
     },
     {
       "feature": "mean_weight_g",
-      "average_precision_drop": 0.001004789150272789
+      "average_precision_drop": 0.004122949720589594
     },
     {
-      "feature": "item_count",
-      "average_precision_drop": 0.0009112007222827512
-    },
-    {
-      "feature": "category",
-      "average_precision_drop": 0.0007221632426232721
-    },
-    {
-      "feature": "seller_count",
-      "average_precision_drop": 0.0006990652585938978
-    },
-    {
-      "feature": "item_value",
-      "average_precision_drop": 0.0004548163681017181
+      "feature": "seller_state",
+      "average_precision_drop": 0.00255071731751933
     },
     {
       "feature": "purchase_month",
-      "average_precision_drop": -0.00012987297039512014
+      "average_precision_drop": 0.002518751185732562
+    },
+    {
+      "feature": "item_value",
+      "average_precision_drop": 0.0020271880550762926
+    },
+    {
+      "feature": "category",
+      "average_precision_drop": 0.0014768655229246085
+    },
+    {
+      "feature": "seller_count",
+      "average_precision_drop": 0.0009374622173601882
     },
     {
       "feature": "purchase_weekday",
-      "average_precision_drop": -0.00022360301150312623
+      "average_precision_drop": 0.0006755053776458409
     },
     {
       "feature": "freight_value",
-      "average_precision_drop": -0.0007362223065811357
+      "average_precision_drop": 0.000210330055541047
+    },
+    {
+      "feature": "item_count",
+      "average_precision_drop": 0.0001176704695503461
     },
     {
       "feature": "interstate_share",
-      "average_precision_drop": -0.02112391686941118
+      "average_precision_drop": -0.017811444582684348
     }
   ],
   "limitations": [
     "Delivered orders only: canceled and unresolved orders are not represented.",
     "45-day maturity buffer reduces but does not eliminate censoring.",
+    "The high-recall operating point creates false alarms: precision was only 5.9% on the held-out test, so it is a review queue, not an automatic intervention.",
     "Scores are not guaranteed calibrated outside the historical population.",
+    "The operating threshold is selected to favor recall using historical validation data; false-positive costs must be assessed before operational use.",
     "Feature importance is global, not causal or a per-order explanation.",
     "Features assume item and promised-date information is available immediately after checkout."
   ],

@@ -322,20 +322,19 @@ elif page == "Forecasting":
         st.stop()
     metrics = report["metrics"]
     best = min(metrics, key=lambda name: metrics[name]["rmse"])
+    chosen = report.get("selected_method", best)
     a, b, c = st.columns(3)
-    a.metric(f"Forecast · {report['next_month']}", money(report["forecast"]["calendar_lag_model"]["point"]))
-    b.metric("80% interval", f"{money(report['forecast']['calendar_lag_model']['low_80'])} – {money(report['forecast']['calendar_lag_model']['high_80'])}")
-    c.metric("Best backtest method", best.replace("_", " "))
+    a.metric(f"Forecast · {report['next_month']}", money(report["forecast"][chosen]["point"]))
+    b.metric("80% interval", f"{money(report['forecast'][chosen]['low_80'])} – {money(report['forecast'][chosen]['high_80'])}")
+    c.metric("Selected by rolling RMSE", chosen.replace("_", " "))
     history = pd.DataFrame(report["recent_actuals"])
-    forecast = report["forecast"]["calendar_lag_model"]
+    forecast = report["forecast"][chosen]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=history.month, y=history.item_sales, mode="lines+markers", name="Actual", fill="tozeroy", fillcolor="rgba(167,139,250,0.08)"))
     fig.add_trace(go.Scatter(x=[report["next_month"]], y=[forecast["point"]], mode="markers", name="Forecast", marker=dict(size=14, symbol="diamond")))
     fig.add_trace(go.Scatter(x=[report["next_month"], report["next_month"]], y=[forecast["low_95"], forecast["high_95"]], mode="lines", name="95% interval", line=dict(width=10, color="rgba(103,232,249,0.25)")))
     chart(fig.update_layout(title="Recent actuals and next-month forecast", yaxis_title="Item sales (BRL)"))
-    st.markdown(f"**The honest headline:** with only **{report['complete_months']} complete months**, the plain naive last-value forecast "
-                f"(MAPE {metrics['naive_last_value']['mape']:.1%}) is competitive with or better than the calendar/lag model "
-                f"(MAPE {metrics['calendar_lag_model']['mape']:.1%}). Long-term seasonality cannot be trusted from under one full year of history.")
+    st.markdown(f"**Selected method:** {chosen.replace('_', ' ')} by lowest rolling-origin RMSE. With only **{report['complete_months']} complete months**, forecast errors are still substantial: naive MAPE {metrics['naive_last_value']['mape']:.1%}; calendar/lag MAPE {metrics['calendar_lag_model']['mape']:.1%}. Long-term seasonality cannot be trusted from this short history.")
     st.dataframe(pd.DataFrame(metrics).T, width="stretch")
     st.caption("Rolling one-month-ahead backtests across every available origin (no random splits). Naive carries the last value forward; seasonal naive repeats the value from twelve months earlier.")
     st.download_button("Download backtest results", (ARTIFACTS / "forecast_backtest.csv").read_text(), "forecast_backtest.csv", "text/csv")
@@ -376,8 +375,7 @@ elif page == "Recommendations":
         b.metric("Popularity MAP@10", f"{metrics['popularity']['map_at_k']:.3f}")
         c.metric("Evaluable customers", f"{report['customers_with_repeat_history']:,}")
         st.dataframe(pd.DataFrame(metrics).T, width="stretch")
-        st.caption(f"Temporal holdout at {report['cutoff'][:10]}: train on earlier purchases, test whether later purchases appear in the top-10. "
-                   f"Catalog: {report['catalog_size']:,} products, {report['cold_start_products']} with no category.")
+        st.caption(f"Strict temporal warm-start holdout at {report['cutoff'][:10]}: catalog/popularity fitted on earlier purchases only; recommend unseen products known before the test; measure Recall@10 as hits divided by relevant later items. Evaluable customers: {report['customers_with_repeat_history']:,}. Training catalog: {report['train_catalog_size']:,}; new test-window products excluded from warm-start metrics: {report['test_products_excluded_as_cold_start']:,}.")
         caveats(report["limitations"])
     else:
         st.info("Build the evaluation metrics first: olist recommend")
@@ -391,7 +389,8 @@ elif page == "Late-delivery model":
         st.stop()
     st.caption(f"Chronological split: {report['split_timestamp'][:10]} · Train: {report['train_orders']:,} · Held-out test: {report['test_orders']:,} · Test late rate: {report['test_late_rate']:.1%}")
     st.dataframe(pd.DataFrame(report["metrics"]).T, width="stretch")
-    st.caption("Average precision measures rare-class ranking; Brier score measures probability error (lower is better). Fixed 0.5 threshold can have low recall on imbalanced data. No threshold tuning or model selection uses this test set.")
+    logit_metrics = report["metrics"]["logistic_regression"]
+    st.caption(f"Average precision measures rare-class ranking; Brier score measures probability error (lower is better). The logistic operating threshold ({report['threshold']:.3f}) was selected on an earlier chronological validation window to favor recall (F2), then evaluated once on this held-out test window. At this threshold test recall is {logit_metrics['recall_at_threshold']:.1%}, but precision is {logit_metrics['precision_at_threshold']:.1%}: expect false alarms. Thresholds trade false alarms against missed late orders.")
     importance = pd.DataFrame(report["importance"])
     chart(px.bar(importance.head(8).sort_values("average_precision_drop"), x="average_precision_drop", y="feature", orientation="h", title="Global permutation importance · held-out average-precision drop"))
     eligible = filtered.loc[filtered.item_count.gt(0) & filtered.promised_days.ge(0)]

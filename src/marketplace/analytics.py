@@ -65,13 +65,17 @@ def _artifact_sections(artifact_dir: Path) -> list[str]:
         report = json.loads(recommender_path.read_text())
         if report.get("available"):
             metrics = report["metrics"]
+            pop = metrics["popularity"]["map_at_k"]
+            content = metrics["content_based"]["map_at_k"]
+            winner = "popularity" if pop >= content else "content-based"
             sections.append(
                 f"### Recommendations\n\n"
                 f"On a temporal holdout with **{metrics['content_based']['evaluable_customers']}** evaluable repeat customers, "
                 f"content-based recall@10 was **{metrics['content_based']['recall_at_k']:.1%}** versus "
                 f"**{metrics['popularity']['recall_at_k']:.1%}** for popularity, with MAP@10 "
                 f"**{metrics['content_based']['map_at_k']:.3f}** versus **{metrics['popularity']['map_at_k']:.3f}**. "
-                "Absolute values are low because Olist has little repeat purchasing and no browsing or basket signal.\n")
+                f"The better measured ranking in this holdout was **{winner}**. The evaluation uses only products and popularity known in the training period; "
+                "absolute scores remain low because Olist has little repeat purchasing and no browsing signal.\n")
     repurchase_path = artifact_dir / "repurchase_report.json"
     if repurchase_path.exists():
         report = json.loads(repurchase_path.read_text())

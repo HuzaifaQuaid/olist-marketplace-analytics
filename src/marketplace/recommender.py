@@ -79,7 +79,7 @@ class Recommender:
 
 def _rank_metrics(recommended: list[str], relevant: set[str], k: int) -> tuple[float, float, float]:
     hits = [position for position, product in enumerate(recommended[:k]) if product in relevant]
-    recall = 1.0 if hits else 0.0
+    recall = len(hits) / len(relevant) if relevant else 0.0
     precision = len(hits) / k
     average_precision = sum(1.0 / (position + 1) for position in hits) / min(len(relevant), k)
     return recall, precision, average_precision
@@ -96,27 +96,38 @@ def evaluate(recommender: Recommender, items: pd.DataFrame, k: int = DEFAULT_K) 
     test = sales.loc[sales.order_purchase_timestamp >= cutoff]
     train_history = train.groupby("customer_unique_id").product_id.apply(list)
     test_history = test.groupby("customer_unique_id").product_id.apply(set)
+    # Fit every popularity/catalog statistic using training period only.
+    training_catalog = build_catalog(train)
+    training_recommender = Recommender(training_catalog)
+    training_products = set(training_recommender.index)
+    # Only products known before the test window are eligible recommendations.
+    test_history = test_history.apply(lambda products: products & training_products)
     evaluable = [customer for customer in test_history.index
                  if customer in train_history.index and test_history[customer] - set(train_history[customer])]
-    popularity_rank = recommender.popularity
+    popularity_rank = training_recommender.popularity
     if len(evaluable) > EVAL_CUSTOMERS:
         evaluable = list(pd.Series(evaluable).sample(EVAL_CUSTOMERS, random_state=42))
     rows = {"popularity": [], "content_based": []}
     for customer in evaluable:
         relevant = test_history[customer] - set(train_history[customer])
         purchased = train_history[customer]
-        rows["popularity"].append(_rank_metrics(popularity_rank, relevant, k))
-        rows["content_based"].append(_rank_metrics(recommender.for_customer(purchased, k).product_id.tolist(), relevant, k))
+        # Both methods recommend only unseen items and return k candidates.
+        popular_unseen = [product for product in popularity_rank if product not in set(purchased)][:k]
+        rows["popularity"].append(_rank_metrics(popular_unseen, relevant, k))
+        rows["content_based"].append(_rank_metrics(training_recommender.for_customer(purchased, k).product_id.tolist(), relevant, k))
     metrics = {}
     for name, values in rows.items():
         array = np.array(values, dtype=float)
         metrics[name] = {"evaluable_customers": len(values), "recall_at_k": float(array[:, 0].mean()),
                          "precision_at_k": float(array[:, 1].mean()), "map_at_k": float(array[:, 2].mean())}
-    return {"available": True, "k": k, "cutoff": str(cutoff), "customers_with_repeat_history": int(len(evaluable)),
+    return {"available": bool(evaluable), "k": k, "cutoff": str(cutoff), "customers_with_repeat_history": int(len(evaluable)),
             "train_purchases": int(len(train)), "test_purchases": int(len(test)),
             "metrics": metrics, "catalog_size": int(len(recommender.catalog)),
+            "train_catalog_size": int(len(training_catalog)),
+            "test_products_excluded_as_cold_start": int(len(set(test.product_id) - training_products)),
             "cold_start_products": int(recommender.catalog.category.eq("unknown").sum()),
-            "limitations": ["Olist has very little repeat purchasing, so only a small share of customers can be evaluated and results are unstable.",
+            "limitations": ["Evaluation is restricted to customers with earlier observed purchases and later purchases of products known in the training window; this is a warm-start evaluation, not new-customer performance.",
+                            "Olist has very little repeat purchasing, so only a small share of customers can be evaluated and results are unstable.",
                             "Both baselines ignore price, availability and business constraints; a real system needs ranking objectives and online tests.",
                             "Similarity uses category and physical attributes only: there is no browsing, click or basket-overlap signal.",
                             "Cold-start products with no category or attributes fall back to popularity."]}
