@@ -63,6 +63,39 @@ def money(value):
     return f"R${value:,.0f}"
 
 
+def present_label(value, column: str | None = None):
+    """Convert machine-style labels to readable display text without mutating data."""
+    if not isinstance(value, str):
+        return value
+    if column in {"seller_id", "product_id", "customer_unique_id", "order_id"}:
+        prefix = {"seller_id": "Seller", "product_id": "Product", "customer_unique_id": "Customer", "order_id": "Order"}[column]
+        # IDs are not descriptive names; show a short, stable reference instead of a UUID.
+        return f"{prefix} · {value[:8].upper()}"
+    text = value.replace("_", " ").strip()
+    if text.isupper() and len(text) <= 3:
+        return text
+    return text.title()
+
+
+def display_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a presentation-only copy with human-readable headers and labels."""
+    shown = frame.copy()
+    shown.columns = [present_label(str(column)) for column in shown.columns]
+    for column in frame.columns:
+        if column in {"category", "dominant_category", "feature", "series", "bucket", "method"}:
+            shown[present_label(str(column))] = frame[column].map(lambda value: present_label(value, column))
+        elif column in {"seller_id", "product_id", "customer_unique_id", "order_id"}:
+            shown[present_label(str(column))] = frame[column].map(lambda value: present_label(value, column))
+    return shown
+
+
+def display_metric_table(frame: pd.DataFrame, index_name: str) -> pd.DataFrame:
+    """Make model/evaluation row labels explicit and readable."""
+    shown = frame.copy().reset_index(names=index_name)
+    shown[index_name] = shown[index_name].map(lambda value: present_label(value))
+    return display_frame(shown)
+
+
 def chart(fig):
     fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                       margin=dict(l=16, r=16, t=55, b=20), font=dict(color="#BCC9E0", size=12),
@@ -74,6 +107,15 @@ def chart(fig):
     fig.update_yaxes(gridcolor="rgba(255,255,255,0.04)", zerolinecolor="rgba(255,255,255,0.07)")
     for index, trace in enumerate(fig.data):
         color = ["#A78BFA", "#67E8F9", "#FCD34D", "#F9A8D4"][index % 4]
+        # Plotly category axes otherwise expose source keys such as construction_tools_garden.
+        for attr in ("x", "y", "labels"):
+            values = getattr(trace, attr, None)
+            if values is not None and not isinstance(values, str):
+                try:
+                    formatted = [present_label(value) for value in values]
+                    setattr(trace, attr, formatted)
+                except (TypeError, ValueError):
+                    pass
         if trace.type == "scatter":
             trace.update(line=dict(color=color, width=3), marker=dict(color=color, size=7))
         elif trace.type == "bar":
@@ -120,7 +162,7 @@ def render_analyst_evidence(evidence: dict):
         label = key.replace("_", " ").title()
         if isinstance(value, list) and value and all(isinstance(row, dict) for row in value):
             with st.expander(f"📊 {label} · {len(value)} rows", expanded=True):
-                st.dataframe(pd.DataFrame(value), hide_index=True, width="stretch")
+                st.dataframe(display_frame(pd.DataFrame(value)), hide_index=True, width="stretch")
         elif isinstance(value, dict):
             # Turn metric-like nested dictionaries into readable metric tiles.
             pairs = [(name, item) for name, item in value.items()
@@ -241,7 +283,7 @@ if page == "Business overview":
     st.caption(f"Delivery denominator: {len(labeled):,} observed, valid delivered orders. Sales count requires at least one item.")
     if not sale_items.empty and sales.item_value.sum() > 0:
         leaders = sale_items.groupby("category").price.sum().sort_values(ascending=False)
-        leader = escape(str(leaders.index[0]).replace("_", " ").title())
+        leader = escape(present_label(str(leaders.index[0]), "category"))
         st.markdown(f'<div class="insight-strip"><span class="insight-icon">✧</span><div><strong>IN FOCUS · CATEGORY LEADERSHIP</strong><p>{leader} leads this selection with {money(leaders.iloc[0])} in item sales — {leaders.iloc[0] / sales.item_value.sum():.1%} of the selected sales total. Explore the category rankings below.</p></div></div>', unsafe_allow_html=True)
     monthly = sales.assign(month=sales.order_purchase_timestamp.dt.to_period("M").dt.to_timestamp()).groupby("month").agg(
         item_sales=("item_value", "sum"), orders=("order_id", "count"), aov=("item_value", "mean")).reset_index()
@@ -253,8 +295,12 @@ if page == "Business overview":
     categories = sale_items.groupby("category", as_index=False).agg(item_sales=("price", "sum"), orders=("order_id", "nunique")).sort_values("item_sales", ascending=False).head(12)
     sellers = sale_items.groupby("seller_id", as_index=False).agg(item_sales=("price", "sum"), orders=("order_id", "nunique")).sort_values("item_sales", ascending=False).head(12)
     with left:
+        categories = categories.copy()
+        categories["category"] = categories.category.map(lambda value: present_label(value, "category"))
         chart(px.bar(categories.sort_values("item_sales"), x="item_sales", y="category", orientation="h", title="Leading product categories"))
     with right:
+        sellers = sellers.copy()
+        sellers["seller_id"] = sellers.seller_id.map(lambda value: present_label(value, "seller_id"))
         chart(px.bar(sellers.sort_values("item_sales"), x="item_sales", y="seller_id", orientation="h", title="Leading sellers"))
     st.download_button("Download monthly KPIs", monthly.to_csv(index=False), "monthly_kpis.csv", "text/csv")
 
@@ -284,7 +330,7 @@ elif page == "Delivery & reviews":
     table["ci95_low"] = [interval.low for interval in intervals]
     table["ci95_high"] = [interval.high for interval in intervals]
     st.subheader("Seller delivery watchlist (raw rates)")
-    st.dataframe(table.sort_values("late_rate", ascending=False), hide_index=True, width="stretch")
+    st.dataframe(display_frame(table.sort_values("late_rate", ascending=False)), hide_index=True, width="stretch")
     st.caption("Order-level outcome attributed to each participating seller once. Multi-seller orders do not identify which seller caused a delay. Rates are unadjusted, not proof of seller fault. The Investigation workspace adds shrinkage.")
 
 elif page == "Investigation":
@@ -314,9 +360,9 @@ elif page == "Investigation":
         st.info("Not enough delivered orders per seller in this selection.")
     else:
         display = sellers.head(15)[["seller_id", "dominant_category", "n", "late", "raw_rate", "shrunk_rate", "marketplace_rate"]]
-        chart(px.bar(display.sort_values("shrunk_rate"), x="shrunk_rate", y="seller_id", orientation="h",
+        chart(px.bar(display.assign(seller_id=display.seller_id.map(lambda value: present_label(value, "seller_id"))).sort_values("shrunk_rate"), x="shrunk_rate", y="seller_id", orientation="h",
                      title="Highest shrunk late-delivery rates", hover_data=["n", "raw_rate"]))
-        st.dataframe(display.round(4), hide_index=True, width="stretch")
+        st.dataframe(display_frame(display.round(4)), hide_index=True, width="stretch")
         st.caption(f"Marketplace rate {sellers.marketplace_rate.iloc[0]:.2%}; prior strength ≈ {sellers.prior_strength.iloc[0]:.0f} pseudo-orders. Lower-volume sellers move further toward the marketplace rate.")
     st.divider()
     st.markdown("**Freight by customer state:** bootstrap 95% intervals. Distance is only a proxy — exact coordinates are not joined here.")
@@ -328,7 +374,7 @@ elif page == "Investigation":
                                error_y=dict(type="data", array=(freight.ci95_high - freight.mean_freight_per_item),
                                             arrayminus=(freight.mean_freight_per_item - freight.ci95_low), color="#67E8F9")))
         chart(fig.update_layout(title="Mean item freight by customer state", xaxis_title="State", yaxis_title="BRL per item"))
-        st.dataframe(freight.round(2), hide_index=True, width="stretch")
+        st.dataframe(display_frame(freight.round(2)), hide_index=True, width="stretch")
 
 elif page == "Customers":
     counts = sales.groupby("customer_unique_id").order_id.nunique()
@@ -357,7 +403,7 @@ elif page == "Repurchase model":
     d.metric("Top-decile lift", f"{metrics['lift_at_top_decile']:.1f}x")
     st.markdown(f"**Question:** which customers are likely to buy again? The label is a **second observed purchase within {report['horizon_days']} days** of the first, "
                 f"over **{report['matured_customers']:,}** customers who had the full observation horizon (so recent cohorts are excluded rather than mislabelled).")
-    st.dataframe(pd.DataFrame(report["metrics"]).T, width="stretch")
+    st.dataframe(display_metric_table(pd.DataFrame(report["metrics"]).T, "model"), hide_index=True, width="stretch")
     st.caption("Base rate is the naive prevalence; average precision measures rare-event ranking. The top decile repeats at "
                f"{metrics['top_decile_rate']:.1%} versus the {report['test_repeat_rate']:.1%} test base rate.")
     calibration = pd.DataFrame(report["calibration"])
@@ -387,7 +433,7 @@ elif page == "Forecasting":
     fig.add_trace(go.Scatter(x=[report["next_month"], report["next_month"]], y=[forecast["low_95"], forecast["high_95"]], mode="lines", name="95% interval", line=dict(width=10, color="rgba(103,232,249,0.25)")))
     chart(fig.update_layout(title="Recent actuals and next-month forecast", yaxis_title="Item sales (BRL)"))
     st.markdown(f"**Selected method:** {chosen.replace('_', ' ')} by lowest rolling-origin RMSE. With only **{report['complete_months']} complete months**, forecast errors are still substantial: naive MAPE {metrics['naive_last_value']['mape']:.1%}; calendar/lag MAPE {metrics['calendar_lag_model']['mape']:.1%}. Long-term seasonality cannot be trusted from this short history.")
-    st.dataframe(pd.DataFrame(metrics).T, width="stretch")
+    st.dataframe(display_metric_table(pd.DataFrame(metrics).T, "method"), hide_index=True, width="stretch")
     st.caption("Rolling one-month-ahead backtests across every available origin (no random splits). Naive carries the last value forward; seasonal naive repeats the value from twelve months earlier.")
     st.download_button("Download backtest results", (ARTIFACTS / "forecast_backtest.csv").read_text(), "forecast_backtest.csv", "text/csv")
     caveats(report["limitations"])
@@ -402,7 +448,7 @@ elif page == "Recommendations":
         product = st.selectbox("Product", options)
         if product:
             similar = catalogue.similar_to_product(product, 8)
-            st.dataframe(similar[["product_id", "category", "mean_price", "orders", "score"]].round(3), hide_index=True, width="stretch")
+            st.dataframe(display_frame(similar[["product_id", "category", "mean_price", "orders", "score"]].round(3)), hide_index=True, width="stretch")
     with right:
         st.markdown("**Recommend for a customer**")
         with duckdb.connect(str(db_path), read_only=True) as con:
@@ -417,7 +463,7 @@ elif page == "Recommendations":
             customer = st.selectbox("Customer with purchase history", repeaters.customer_unique_id.tolist())
             row = repeaters.loc[repeaters.customer_unique_id.eq(customer)].iloc[0]
             recommendations = catalogue.for_customer(row.products, 8)
-            st.dataframe(recommendations[["product_id", "category", "mean_price", "orders"]].round(2), hide_index=True, width="stretch")
+            st.dataframe(display_frame(recommendations[["product_id", "category", "mean_price", "orders"]].round(2)), hide_index=True, width="stretch")
             st.caption(f"This customer already bought {len(row.products)} distinct product(s); those are excluded from the suggestions.")
     st.divider()
     if matches(report, metadata) and report.get("available"):
@@ -426,7 +472,7 @@ elif page == "Recommendations":
         a.metric("Content MAP@10", f"{metrics['content_based']['map_at_k']:.3f}")
         b.metric("Popularity MAP@10", f"{metrics['popularity']['map_at_k']:.3f}")
         c.metric("Evaluable customers", f"{report['customers_with_repeat_history']:,}")
-        st.dataframe(pd.DataFrame(metrics).T, width="stretch")
+        st.dataframe(display_metric_table(pd.DataFrame(metrics).T, "method"), hide_index=True, width="stretch")
         st.caption(f"Strict temporal warm-start holdout at {report['cutoff'][:10]}: catalog/popularity fitted on earlier purchases only; recommend unseen products known before the test; measure Recall@10 as hits divided by relevant later items. Evaluable customers: {report['customers_with_repeat_history']:,}. Training catalog: {report['train_catalog_size']:,}; new test-window products excluded from warm-start metrics: {report['test_products_excluded_as_cold_start']:,}.")
         caveats(report["limitations"])
     else:
@@ -440,7 +486,7 @@ elif page == "Late-delivery model":
         st.info("Train the models first: olist train")
         st.stop()
     st.caption(f"Chronological split: {report['split_timestamp'][:10]} · Train: {report['train_orders']:,} · Held-out test: {report['test_orders']:,} · Test late rate: {report['test_late_rate']:.1%}")
-    st.dataframe(pd.DataFrame(report["metrics"]).T, width="stretch")
+    st.dataframe(display_metric_table(pd.DataFrame(report["metrics"]).T, "model"), hide_index=True, width="stretch")
     logit_metrics = report["metrics"]["logistic_regression"]
     st.caption(f"Average precision measures rare-class ranking; Brier score measures probability error (lower is better). The logistic operating threshold ({report['threshold']:.3f}) was selected on an earlier chronological validation window to favor recall (F2), then evaluated once on this held-out test window. At this threshold test recall is {logit_metrics['recall_at_threshold']:.1%}, but precision is {logit_metrics['precision_at_threshold']:.1%}: expect false alarms. Thresholds trade false alarms against missed late orders.")
     importance = pd.DataFrame(report["importance"])
@@ -498,7 +544,7 @@ elif page == "AI analyst":
 
 else:
     st.subheader("Trust starts with the data")
-    st.dataframe(data["data_quality"], hide_index=True, width="stretch")
+    st.dataframe(display_frame(data["data_quality"]), hide_index=True, width="stretch")
     st.markdown("""**Grain contracts**
 - `fact_orders`: exactly one row per order; item and payment totals aggregated separately before joining.
 - `fact_items`: one row per `(order_id, order_item_id)`; monetary category/seller attribution uses item price.

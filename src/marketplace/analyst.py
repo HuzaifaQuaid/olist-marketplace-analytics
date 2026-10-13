@@ -100,7 +100,8 @@ class Analyst:
         month_label = ordered[-1].strftime("%Y-%m")
         worst = declines.iloc[0]
         direction = "fell by" if worst.change < 0 else "rose by"
-        return {"answer": f"In {month_label}, {worst.category} had the largest sales move: it {direction} {_brl(abs(worst.change))} versus its prior three-month average of {_brl(worst.prior_three_avg)}.",
+        category_label = str(worst.category).replace("_", " ").title()
+        return {"answer": f"In {month_label}, {category_label} had the largest sales move: it {direction} {_brl(abs(worst.change))} versus its prior three-month average of {_brl(worst.prior_three_avg)}.",
                 "evidence": {"compared_month": month_label, "baseline": "mean of the previous three complete months",
                              "largest_declines": declines.round(2).to_dict("records"), "largest_gains": gains.round(2).to_dict("records")},
                 "caveats": ["Only complete calendar months are compared; partial boundary months are excluded.",
