@@ -105,6 +105,7 @@ page = st.sidebar.radio("Workspace", ["Business overview", "Delivery & reviews",
 st.sidebar.divider()
 st.sidebar.caption("Sales = item value excluding freight. Canceled and unavailable orders excluded. Delivery KPIs use valid delivered outcomes only.")
 st.sidebar.caption(f"Built {metadata.built_at[:19]} · {metadata.source.upper()}")
+st.sidebar.markdown("[Dataset: Olist / Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) · [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)")
 page_details = {
     "Business overview": ("01", "The big picture", "Sales momentum, category leaders and seller performance."),
     "Delivery & reviews": ("02", "The customer experience", "Delivery friction, satisfaction and regional differences."),

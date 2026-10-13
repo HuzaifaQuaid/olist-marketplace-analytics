@@ -1,5 +1,17 @@
 # Olist Marketplace Intelligence
 
+**Hosted dashboard:** https://huzaifa-olist-intelligence.streamlit.app/
+
+## Cloud deployment
+
+Streamlit Community Cloud runs `app.py` from the `main` branch using Python 3.14
+and `requirements.txt`. When a local `data/olist.duckdb` is absent, the app uses
+the smaller `deployment/olist.duckdb` snapshot. Model artifacts are version-pinned
+to their training runtime. Raw CSVs and credentials are not committed.
+See `deployment/README.md` for dataset attribution and noncommercial share-alike
+license requirements. Hosting makes the application publicly accessible;
+the underlying Olist data remains historical, not real-time.
+
 A runnable first release: validated multi-table ingestion, a business dashboard, customer cohorts, delivery/review investigation, three late-delivery model comparisons, per-order model explanations, and a generated five-finding evidence report.
 
 **Synthetic demo results are not real Olist findings.** The app prominently labels its data source. No Kaggle credentials or LLM API keys are needed to try the demo.
