@@ -27,7 +27,7 @@ st.set_page_config(page_title="Olist | Marketplace Intelligence", page_icon="◈
 st.markdown(f"<style>{(ROOT / 'assets/dashboard.css').read_text()}</style>", unsafe_allow_html=True)
 
 
-@st.cache_data
+@st.cache_resource
 def load_data(path: str, modified: float):
     with duckdb.connect(path, read_only=True) as con:
         return {name: con.execute(f"SELECT * FROM {name}").df() for name in ["fact_orders", "fact_items", "data_quality", "metadata"]}
@@ -48,15 +48,13 @@ def adjusted_analysis(path: str, modified: float, start: str, end: str, states: 
 
 
 @st.cache_resource(show_spinner="Loading the analyst…")
-def load_analyst(path: str, modified: float, artifacts: str):
-    return Analyst(Path(path), Path(artifacts))
+def load_analyst(path: str, modified: float, artifacts: str, _data):
+    return Analyst(Path(path), Path(artifacts), shared_data=_data)
 
 
 @st.cache_resource(show_spinner="Building the product catalogue…")
-def load_recommender(path: str, modified: float):
-    with duckdb.connect(path, read_only=True) as con:
-        items = con.execute("SELECT * FROM fact_items").df()
-    return Recommender(build_catalog(items))
+def load_recommender(path: str, modified: float, _items):
+    return Recommender(build_catalog(_items))
 
 
 def money(value):
@@ -503,7 +501,7 @@ elif page == "Forecasting":
     caveats(report["limitations"])
 
 elif page == "Recommendations":
-    catalogue = load_recommender(str(db_path), db_path.stat().st_mtime)
+    catalogue = load_recommender(str(db_path), db_path.stat().st_mtime, items)
     report = artifact("recommender_report.json")
     left, right = st.columns(2)
     with left:
@@ -570,7 +568,7 @@ elif page == "Late-delivery model":
 elif page == "AI analyst":
     st.markdown("**Ask a question in plain English.** Get a clear takeaway, the numbers behind it, and the boundaries of what the data can tell us.")
     try:
-        analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ARTIFACTS))
+        analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ARTIFACTS), data)
     except Exception as exc:
         st.error(f"The analyst could not start: {exc}")
         st.stop()

@@ -28,12 +28,15 @@ REFUSALS = {
 
 
 class Analyst:
-    def __init__(self, db_path: Path, artifact_dir: Path | None = None):
-        with duckdb.connect(str(db_path), read_only=True) as con:
-            self.orders = con.execute("SELECT * FROM fact_orders").df()
-            self.items = con.execute("SELECT * FROM fact_items").df()
-            self.quality = con.execute("SELECT * FROM data_quality").df()
-            self.metadata = con.execute("SELECT * FROM metadata").df().iloc[0].to_dict()
+    def __init__(self, db_path: Path, artifact_dir: Path | None = None, shared_data: dict | None = None):
+        if shared_data is None:
+            with duckdb.connect(str(db_path), read_only=True) as con:
+                shared_data = {name: con.execute(f"SELECT * FROM {name}").df()
+                               for name in ["fact_orders", "fact_items", "data_quality", "metadata"]}
+        self.orders = shared_data["fact_orders"]
+        self.items = shared_data["fact_items"]
+        self.quality = shared_data["data_quality"]
+        self.metadata = shared_data["metadata"].iloc[0].to_dict()
         self.artifact_dir = artifact_dir
         self.catalog = build_catalog(self.items)
         self.recommender = Recommender(self.catalog)
