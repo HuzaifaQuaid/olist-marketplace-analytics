@@ -149,7 +149,7 @@ Tests cover grain and monetary conservation (including intentionally multi-payme
 - **Investigation:** the adjusted late-delivery review penalty (−1.96 points) barely differs from the unadjusted gap (−2.02), so value, freight, category and region do not explain it away. Still observational.
 - **Forecasting:** with 19 complete months, the naive baseline (MAPE 7.0%) beats the calendar/lag model (13.1%). A short history cannot support confident seasonality.
 - **Recommendations:** strict temporal warm-start evaluation on 228 repeat customers; popularity currently outperforms content-based ranking (MAP@10 0.014 vs 0.007). Both absolute scores are low on sparse data.
-- **Late-delivery model:** the untouched temporal test gives random forest ROC-AUC 0.744 / average precision 0.101, versus 0.035 prevalence AP. A validation-chosen high-recall cutoff reaches 77% recall but only 6.2% precision: use as a manual review queue, not an automatic decision.
+- **Late-delivery model:** the untouched temporal test gives random forest ROC-AUC 0.744 / average precision 0.101, versus 0.035 prevalence AP. A validation-chosen logistic high-recall cutoff reaches 79% recall but only 5.9% precision: use as a manual review queue, not an automatic decision.
 - **Repurchase:** 90-day repeat base rate 2.3%; logistic ROC-AUC 0.60 with 1.8x top-decile lift and reasonable calibration — usable for ranking, not for promising outcomes.
 
 ## Future work

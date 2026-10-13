@@ -325,7 +325,8 @@ elif page == "Forecasting":
     chosen = report.get("selected_method", best)
     a, b, c = st.columns(3)
     a.metric(f"Forecast · {report['next_month']}", money(report["forecast"][chosen]["point"]))
-    b.metric("80% interval", f"{money(report['forecast'][chosen]['low_80'])} – {money(report['forecast'][chosen]['high_80'])}")
+    interval = report["forecast"][chosen]
+    b.metric("80% interval", f"BRL {interval['low_80']:,.0f} to {interval['high_80']:,.0f}")
     c.metric("Selected by rolling RMSE", chosen.replace("_", " "))
     history = pd.DataFrame(report["recent_actuals"])
     forecast = report["forecast"][chosen]
