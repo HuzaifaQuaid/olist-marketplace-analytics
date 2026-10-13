@@ -24,11 +24,11 @@ From this project directory, using Python 3.11 or newer:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
-olist demo
+olist demo          # builds every stage on synthetic data into data/demo.duckdb
 streamlit run app.py
 ```
 
-Open the local URL printed by Streamlit, normally http://localhost:8501.
+Open the local URL printed by Streamlit, normally http://localhost:8501. The synthetic demo writes to its own `data/demo.duckdb` and `artifacts/demo/`, so it never overwrites real ingested data or the real reports.
 
 ## Use the real dataset
 

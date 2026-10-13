@@ -30,27 +30,32 @@ def main():
     parser = argparse.ArgumentParser(description="Olist marketplace analytics")
     parser.add_argument("command", choices=["demo", "ingest", "train", "forecast", "recommend", "repurchase", "report", "build"])
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw"))
-    parser.add_argument("--db", type=Path, default=Path("data/olist.duckdb"))
-    parser.add_argument("--artifacts", type=Path, default=Path("artifacts"))
+    parser.add_argument("--db", type=Path, default=None)
+    parser.add_argument("--artifacts", type=Path, default=None)
     args = parser.parse_args()
+    # The synthetic demo writes to its own database and artifacts so it can never overwrite real ingested data.
+    db = args.db or (Path("data/demo.duckdb") if args.command == "demo" else Path("data/olist.duckdb"))
+    artifacts = args.artifacts or (Path("artifacts/demo") if args.command == "demo" else Path("artifacts"))
     if args.command == "demo":
         demo = Path("data/demo")
         generate_demo(demo)
-        build_all(args.db, args.artifacts, demo, "synthetic")
+        build_all(db, artifacts, demo, "synthetic")
+        print(f"\nDemo database written to {db} with artifacts in {artifacts}.")
+        print("Start the app with: streamlit run app.py")
     elif args.command == "ingest":
-        _json(build_database(args.raw_dir, args.db))
+        _json(build_database(args.raw_dir, db))
     elif args.command == "train":
-        _json(train_model(args.db, args.artifacts))
+        _json(train_model(db, artifacts))
     elif args.command == "forecast":
-        _json(train_forecast(args.db, args.artifacts))
+        _json(train_forecast(db, artifacts))
     elif args.command == "recommend":
-        _json(train_recommender(args.db, args.artifacts))
+        _json(train_recommender(db, artifacts))
     elif args.command == "repurchase":
-        _json(train_repurchase(args.db, args.artifacts))
+        _json(train_repurchase(db, artifacts))
     elif args.command == "build":
-        build_all(args.db, args.artifacts, None, "existing")
+        build_all(db, artifacts, None, "existing")
     else:
-        print(generate_report(args.db, args.artifacts / "findings.md"))
+        print(generate_report(db, artifacts / "findings.md"))
 
 
 if __name__ == "__main__":

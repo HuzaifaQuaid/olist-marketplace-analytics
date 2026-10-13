@@ -82,7 +82,7 @@ def chart(fig):
 
 
 def artifact(name: str) -> dict | None:
-    path = ROOT / "artifacts" / name
+    path = ARTIFACTS / name
     return json.loads(path.read_text()) if path.exists() else None
 
 
@@ -98,9 +98,8 @@ def caveats(items: list[str]):
 
 st.sidebar.markdown('<div class="brand"><div class="brand-mark">◈</div><div><div class="brand-name">OLIST</div><div class="brand-sub">Intelligence studio</div></div></div>', unsafe_allow_html=True)
 with st.sidebar.expander("Data connection", expanded=False):
-    default_db = ROOT / "data/olist.duckdb"
-    if not default_db.exists():
-        default_db = ROOT / "deployment/olist.duckdb"
+    candidates = [ROOT / "data/olist.duckdb", ROOT / "data/demo.duckdb", ROOT / "deployment/olist.duckdb"]
+    default_db = next((path for path in candidates if path.exists()), candidates[0])
     db_path = Path(st.text_input("DuckDB file", str(default_db)))
 if not db_path.exists():
     st.title("Marketplace intelligence")
@@ -143,6 +142,22 @@ sale_items = filtered_items.loc[filtered_items.order_status.isin(sales.order_sta
 if filtered.empty:
     st.info("No orders match these filters.")
     st.stop()
+
+ARTIFACT_DIRS = [ROOT / "artifacts", ROOT / "artifacts" / "demo"]
+
+
+def choose_artifacts() -> Path:
+    """Pick the artifact directory whose reports match this database build."""
+    for directory in ARTIFACT_DIRS:
+        candidate = directory / "model_report.json"
+        if candidate.exists():
+            report = json.loads(candidate.read_text())
+            if report.get("source") == metadata.source and report.get("database_built_at") == metadata.built_at:
+                return directory
+    return ARTIFACT_DIRS[0]
+
+
+ARTIFACTS = choose_artifacts()
 
 page = st.sidebar.radio("Workspace", ["Business overview", "Delivery & reviews", "Investigation", "Customers", "Repurchase model",
                                       "Forecasting", "Recommendations", "Late-delivery model", "AI analyst", "Data quality"])
@@ -323,7 +338,7 @@ elif page == "Forecasting":
                 f"(MAPE {metrics['calendar_lag_model']['mape']:.1%}). Long-term seasonality cannot be trusted from under one full year of history.")
     st.dataframe(pd.DataFrame(metrics).T, width="stretch")
     st.caption("Rolling one-month-ahead backtests across every available origin (no random splits). Naive carries the last value forward; seasonal naive repeats the value from twelve months earlier.")
-    st.download_button("Download backtest results", (ROOT / "artifacts/forecast_backtest.csv").read_text(), "forecast_backtest.csv", "text/csv")
+    st.download_button("Download backtest results", (ARTIFACTS / "forecast_backtest.csv").read_text(), "forecast_backtest.csv", "text/csv")
     caveats(report["limitations"])
 
 elif page == "Recommendations":
@@ -370,7 +385,7 @@ elif page == "Recommendations":
 elif page == "Late-delivery model":
     st.subheader("Post-checkout delivery-risk experiment")
     report = artifact("model_report.json")
-    model_path = ROOT / "artifacts/late_delivery.joblib"
+    model_path = ARTIFACTS / "late_delivery.joblib"
     if not matches(report, metadata) or not model_path.exists():
         st.info("Train the models first: olist train")
         st.stop()
@@ -394,7 +409,7 @@ elif page == "Late-delivery model":
 elif page == "AI analyst":
     st.markdown("**Ask a question in plain English.** The analyst may only choose from approved tools that read your validated data and model outputs, then shows the evidence behind its answer. It never writes SQL and says so when the data cannot answer.")
     try:
-        analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ROOT / "artifacts"))
+        analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ARTIFACTS))
     except Exception as exc:
         st.error(f"The analyst could not start: {exc}")
         st.stop()
