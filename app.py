@@ -96,6 +96,65 @@ def display_metric_table(frame: pd.DataFrame, index_name: str) -> pd.DataFrame:
     return display_frame(shown)
 
 
+QUALITY_DESCRIPTIONS = {
+    "exact duplicates removed": "Exact duplicate rows removed during import",
+    "unparseable dates": "Non-empty date values that could not be read",
+    "missing purchase timestamps": "Orders missing the purchase date",
+    "missing promised dates": "Orders missing the estimated delivery date",
+    "delivery before purchase": "Delivery dates earlier than purchase dates",
+    "promise before purchase": "Estimated delivery earlier than purchase",
+    "delivered status without delivery timestamp": "Marked delivered but missing a delivery date",
+    "invalid scores excluded": "Invalid review scores excluded",
+    "missing categories": "Products without a category label",
+    "extra rows collapsed to latest per order": "Extra reviews reduced to the latest review per order",
+    "payments differ from item plus freight by > r$0.05": "Payments differing from items plus freight by more than R$0.05",
+    "no items": "Orders without item records",
+    "no payments": "Orders without payment records",
+}
+
+
+def present_quality_check(value):
+    raw = str(value)
+    lower = raw.lower()
+    for suffix, description in QUALITY_DESCRIPTIONS.items():
+        if lower.endswith(suffix):
+            subject = raw[: -len(suffix)].rstrip(": .")
+            if "." in subject:
+                table, field = subject.split(".", 1)
+                subject = f"{present_label(table)} — {present_label(field)}"
+            else:
+                subject = present_label(subject)
+            return f"{subject}: {description[0].lower() + description[1:]}"
+    return present_label(raw)
+
+
+def display_quality(frame: pd.DataFrame) -> pd.DataFrame:
+    shown = frame.copy()
+    if "check" in shown:
+        shown["check"] = shown.check.map(present_quality_check)
+    if "severity" in shown:
+        shown["severity"] = shown.severity.map(lambda value: {"info": "Informational", "warning": "Review", "error": "Error"}.get(str(value), present_label(str(value))))
+    shown.columns = ["Validation check" if str(column) == "check" else present_label(str(column)) for column in shown.columns]
+    return shown
+
+
+def display_metadata(metadata) -> pd.DataFrame:
+    fields = [
+        ("source", "Dataset", lambda value: "Historical Olist data" if value == "olist" else "Synthetic demo"),
+        ("built_at", "Database built", lambda value: pd.to_datetime(value).strftime("%B %d, %Y at %H:%M")),
+        ("snapshot_date", "Latest source-data timestamp", lambda value: str(value)),
+        ("revenue_definition", "Sales measure", lambda value: str(value)),
+    ]
+    rows = []
+    for key, label, formatter in fields:
+        if key in metadata:
+            value = formatter(metadata[key])
+            if key == "revenue_definition":
+                value = "Listed item value, excluding freight; canceled and unavailable orders excluded"
+            rows.append({"Detail": label, "Value": value})
+    return pd.DataFrame(rows)
+
+
 def chart(fig):
     fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                       margin=dict(l=16, r=16, t=55, b=20), font=dict(color="#BCC9E0", size=12),
@@ -543,14 +602,30 @@ elif page == "AI analyst":
                 st.caption(f"Approved analysis: `{turn.get('tool') or 'none'}` · Answer planner: `{turn.get('planner', 'unknown')}`. The analyst selects a fixed project tool; it does not generate SQL.")
 
 else:
-    st.subheader("Trust starts with the data")
-    st.dataframe(display_frame(data["data_quality"]), hide_index=True, width="stretch")
-    st.markdown("""**Grain contracts**
-- `fact_orders`: exactly one row per order; item and payment totals aggregated separately before joining.
-- `fact_items`: one row per `(order_id, order_item_id)`; monetary category/seller attribution uses item price.
-- Reviews: latest valid review per order, deterministically ordered by answer timestamp and review ID.
-- Locations: median coordinate per ZIP prefix; never directly joined as a many-to-many table.
+    st.subheader("Data checks and source details")
+    quality = data["data_quality"].copy()
+    quality = quality.loc[quality["count"].gt(0)]
+    informational = quality.severity.eq("info") if "severity" in quality else pd.Series(False, index=quality.index)
+    st.markdown("**Items to be aware of**")
+    st.caption("These checks show records that were cleaned, excluded, or need context. A non-zero count is not automatically an error.")
+    if quality.empty:
+        st.success("No non-zero validation counts were recorded for this build.")
+    else:
+        review = quality.loc[~informational]
+        info = quality.loc[informational]
+        if not review.empty:
+            st.dataframe(display_quality(review), hide_index=True, width="stretch")
+        if not info.empty:
+            with st.expander(f"Informational clean-up steps · {len(info)} checks", expanded=False):
+                st.dataframe(display_quality(info), hide_index=True, width="stretch")
+    st.markdown("**How the tables are structured**")
+    st.markdown("""
+- **Orders:** one row per order. Item totals and payment totals are calculated separately before combining, so sales are not accidentally multiplied.
+- **Order items:** one row per product line in an order. Category and seller sales use the item's listed price.
+- **Reviews:** where an order has multiple valid reviews, the latest one is selected using its recorded response time.
+- **Locations:** multiple coordinate records for a postal-code prefix are summarized before use.
 
-**Hard failures:** conflicting primary keys, missing required columns, orphan foreign keys, invalid monetary values, or broken revenue conservation. Date anomalies and missing attributes remain visible in quality checks; invalid delivery timelines are excluded from the late label.
+**Checks that stop the build:** conflicting IDs, missing required columns, orphan records, invalid monetary values, or sales totals changing unexpectedly during a join. Other issues—such as missing category labels—are reported and handled where possible.
 """)
-    st.json(metadata.to_dict())
+    st.markdown("**Dataset and refresh details**")
+    st.dataframe(display_metadata(metadata.to_dict()), hide_index=True, width="stretch")
