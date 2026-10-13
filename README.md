@@ -155,7 +155,7 @@ Tests cover grain and monetary conservation (including intentionally multi-payme
 ## Future work
 
 1. **Threshold operations:** the chosen logistic high-recall cutoff finds ~79% of late deliveries but only ~5.9% precision on the held-out test. A human triage policy or cheaper second-stage check is needed before rollout; false-positive costs matter. Random forest ranks better, but the threshold must be reselected on validation before deployment.
-2. **Richer forecasting** when more history exists: proper seasonal models, promotion/holiday regressors, and model-based predictive intervals.
+2. **Richer forecasting** when more history exists: promotion/holiday regressors and model-based predictive intervals. The selected naive method now matches the minimum rolling-origin RMSE, rather than always presenting the calendar model.
 3. **Recommendation improvement:** current temporal warm-start evaluation shows popularity wins; richer catalog text, basket data, inventory and online experiments would be needed to justify personalised recommendations.
 4. **Causal designs** (matching or difference-in-differences around seller or logistics changes) to move beyond adjusted association.
 5. **Analyst evaluation harness** with a labelled question set, so grounding and refusal behaviour are measured rather than assumed.
