@@ -180,9 +180,10 @@ def chart(fig):
                     pass
         if trace.type == "scatter":
             trace.update(line=dict(color=color, width=3), marker=dict(color=color, size=7))
-        elif trace.type == "bar":
+        elif trace.type in {"bar", "histogram"}:
             trace.update(marker_color=color, marker_line_width=0)
-    st.plotly_chart(fig, width="stretch", config={"displaylogo": False, "scrollZoom": False})
+    fig.update_layout(legend_title_font=dict(color="#49343e"))
+    st.plotly_chart(fig, theme=None, width="stretch", config={"displaylogo": False, "scrollZoom": False})
 
 
 def artifact(name: str) -> dict | None:
@@ -434,7 +435,7 @@ elif page == "Investigation":
     else:
         fig = go.Figure(go.Bar(x=freight.customer_state, y=freight.mean_freight_per_item,
                                error_y=dict(type="data", array=(freight.ci95_high - freight.mean_freight_per_item),
-                                            arrayminus=(freight.mean_freight_per_item - freight.ci95_low), color="#67E8F9")))
+                                             arrayminus=(freight.mean_freight_per_item - freight.ci95_low), color="#624954")))
         chart(fig.update_layout(title="Mean item freight by customer state", xaxis_title="State", yaxis_title="BRL per item"))
         st.dataframe(display_frame(freight.round(2)), hide_index=True, width="stretch")
 
@@ -449,7 +450,7 @@ elif page == "Customers":
     retention = cohorts(cohort_orders)
     if not retention.empty:
         chart(px.imshow(retention, labels=dict(x="Months since first observed purchase", y="Acquisition cohort", color="Purchase rate"),
-                        aspect="auto", color_continuous_scale="Teal", zmin=0, zmax=1, title="Customer cohort retention"))
+                        aspect="auto", color_continuous_scale=["#FFF4EE", "#E8A397", "#A93250", "#76243F"], zmin=0, zmax=1, title="Customer cohort retention"))
     st.caption("Future/unobserved cohort cells are blank, not zero. Month 0 is 100% by definition. Recent cohorts have less follow-up. See the Repurchase model workspace for a time-aware prediction of buying again.")
 
 elif page == "Repurchase model":
@@ -490,7 +491,7 @@ elif page == "Forecasting":
     history = pd.DataFrame(report["recent_actuals"])
     forecast = report["forecast"][chosen]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=history.month, y=history.item_sales, mode="lines+markers", name="Actual", fill="tozeroy", fillcolor="rgba(167,139,250,0.08)"))
+    fig.add_trace(go.Scatter(x=history.month, y=history.item_sales, mode="lines+markers", name="Actual", fill="tozeroy", fillcolor="rgba(169,50,80,0.10)"))
     fig.add_trace(go.Scatter(x=[report["next_month"]], y=[forecast["point"]], mode="markers", name="Forecast", marker=dict(size=14, symbol="diamond")))
     fig.add_trace(go.Scatter(x=[report["next_month"], report["next_month"]], y=[forecast["low_95"], forecast["high_95"]], mode="lines", name="95% interval", line=dict(width=10, color="rgba(103,232,249,0.25)")))
     chart(fig.update_layout(title="Recent actuals and next-month forecast", yaxis_title="Item sales (BRL)"))
