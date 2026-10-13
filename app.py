@@ -156,16 +156,16 @@ def display_metadata(metadata) -> pd.DataFrame:
 
 
 def chart(fig):
-    fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      margin=dict(l=16, r=16, t=55, b=20), font=dict(color="#BCC9E0", size=12),
-                      title_font=dict(size=17, color="#F0EDFF"),
-                      colorway=["#A78BFA", "#67E8F9", "#FCD34D", "#F9A8D4"],
-                      hoverlabel=dict(bgcolor="#252A44", font_color="#F4F3FF"),
+    fig.update_layout(template="plotly_white", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.35)",
+                      margin=dict(l=16, r=16, t=55, b=20), font=dict(color="#624954", size=12),
+                      title_font=dict(size=17, color="#422631"),
+                      colorway=["#9B2F4A", "#D45465", "#E99A70", "#B8798E"],
+                      hoverlabel=dict(bgcolor="#fff9f5", bordercolor="#d8b6bd", font_color="#34212b"),
                       transition=dict(duration=450), legend=dict(orientation="h", y=-.2))
-    fig.update_xaxes(gridcolor="rgba(255,255,255,0.04)", zerolinecolor="rgba(255,255,255,0.07)")
-    fig.update_yaxes(gridcolor="rgba(255,255,255,0.04)", zerolinecolor="rgba(255,255,255,0.07)")
+    fig.update_xaxes(gridcolor="rgba(111,65,79,0.10)", zerolinecolor="rgba(111,65,79,0.18)")
+    fig.update_yaxes(gridcolor="rgba(111,65,79,0.10)", zerolinecolor="rgba(111,65,79,0.18)")
     for index, trace in enumerate(fig.data):
-        color = ["#A78BFA", "#67E8F9", "#FCD34D", "#F9A8D4"][index % 4]
+        color = ["#9B2F4A", "#D45465", "#E99A70", "#B8798E"][index % 4]
         # Plotly category axes otherwise expose source keys such as construction_tools_garden.
         for attr in ("x", "y", "labels"):
             values = getattr(trace, attr, None)
