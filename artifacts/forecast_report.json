@@ -1,0 +1,95 @@
+{
+  "source": "olist",
+  "database_built_at": "2026-10-12T22:19:43.718146",
+  "horizon_months": 1,
+  "complete_months": 19,
+  "series_start": "2017-02-01",
+  "series_end": "2018-08-01",
+  "min_train_months": 12,
+  "next_month": "2018-09-01",
+  "metrics": {
+    "naive_last_value": {
+      "folds": 7,
+      "mae": 62506.96714285713,
+      "rmse": 84590.26635316914,
+      "mape": 0.06985526005594304,
+      "interval80_coverage": 0.7142857142857143
+    },
+    "seasonal_naive_12m": {
+      "folds": 7,
+      "mae": 490689.79714285716,
+      "rmse": 505883.80819030985,
+      "mape": 0.5344570796575611,
+      "interval80_coverage": 0.7142857142857143
+    },
+    "calendar_lag_model": {
+      "folds": 7,
+      "mae": 117674.66415806538,
+      "rmse": 129629.63775017881,
+      "mape": 0.13088114356422156,
+      "interval80_coverage": 0.7142857142857143
+    }
+  },
+  "forecast": {
+    "naive_last_value": {
+      "point": 848860.1,
+      "low_80": 732481.096,
+      "high_80": 914989.596,
+      "low_95": 722560.684,
+      "high_95": 972759.1965
+    },
+    "seasonal_naive_12m": {
+      "point": 621415.91,
+      "low_80": 965115.8160000001,
+      "high_80": 1244941.7540000002,
+      "low_95": 917801.619,
+      "high_95": 1257109.871
+    },
+    "calendar_lag_model": {
+      "point": 952936.1144244242,
+      "low_80": 799049.7510411807,
+      "high_80": 1021999.0332583016,
+      "low_95": 771917.0683118573,
+      "high_95": 1093680.1468563094
+    }
+  },
+  "recent_actuals": [
+    {
+      "month": "2018-03-01",
+      "item_sales": 981051.06,
+      "orders": 7168
+    },
+    {
+      "month": "2018-04-01",
+      "item_sales": 993592.98,
+      "orders": 6919
+    },
+    {
+      "month": "2018-05-01",
+      "item_sales": 992871.75,
+      "orders": 6833
+    },
+    {
+      "month": "2018-06-01",
+      "item_sales": 863265.53,
+      "orders": 6145
+    },
+    {
+      "month": "2018-07-01",
+      "item_sales": 878044.27,
+      "orders": 6233
+    },
+    {
+      "month": "2018-08-01",
+      "item_sales": 848860.1,
+      "orders": 6421
+    }
+  ],
+  "limitations": [
+    "Olist has under two years of complete months, so seasonality is estimated from at most one prior year and is weak evidence.",
+    "Intervals are empirical residual quantiles from backtests, not model-based predictive distributions.",
+    "Item sales exclude freight and canceled/unavailable orders, and are not a demand forecast for inventory or staffing.",
+    "Promotions, competitor activity, macro shocks and platform changes are not modeled.",
+    "Partial boundary months are excluded; the final historical month is therefore not the last calendar month in the raw data."
+  ]
+}

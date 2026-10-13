@@ -12,4 +12,9 @@ artifacts/*
 !artifacts/findings.md
 !artifacts/model_report.json
 !artifacts/late_delivery.joblib
+!artifacts/forecast_report.json
+!artifacts/forecast_backtest.csv
+!artifacts/recommender_report.json
+!artifacts/repurchase_report.json
+!artifacts/repurchase.joblib
 .streamlit/secrets.toml

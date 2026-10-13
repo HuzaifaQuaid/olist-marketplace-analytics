@@ -4,18 +4,23 @@ import json
 import sys
 from html import escape
 
-# Support Streamlit's script runner even when launched without an editable install.
+# Support Streamlit's script runner even when launched without an installed package.
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import duckdb
 import joblib
+import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from scipy.stats import binomtest
 
+from marketplace import forecasting, stats
+from marketplace.analyst import Analyst
 from marketplace.analytics import cohorts, delivery_association
 from marketplace.model import explain_order, features
+from marketplace.recommender import Recommender, build_catalog
 
 ROOT = Path(__file__).parent
 st.set_page_config(page_title="Olist | Marketplace Intelligence", page_icon="◈", layout="wide")
@@ -26,6 +31,32 @@ st.markdown(f"<style>{(ROOT / 'assets/dashboard.css').read_text()}</style>", uns
 def load_data(path: str, modified: float):
     with duckdb.connect(path, read_only=True) as con:
         return {name: con.execute(f"SELECT * FROM {name}").df() for name in ["fact_orders", "fact_items", "data_quality", "metadata"]}
+
+
+@st.cache_data(show_spinner="Running adjusted regression…")
+def adjusted_analysis(path: str, modified: float, start: str, end: str, states: tuple):
+    with duckdb.connect(path, read_only=True) as con:
+        orders = con.execute("SELECT * FROM fact_orders").df()
+        items = con.execute("SELECT * FROM fact_items").df()
+    mask = orders.order_purchase_timestamp.ge(pd.Timestamp(start)) & orders.order_purchase_timestamp.lt(pd.Timestamp(end) + pd.Timedelta(days=1))
+    if states:
+        mask &= orders.customer_state.isin(states)
+    filtered = orders.loc[mask]
+    return {"adjusted": stats.delivery_review_adjusted(filtered),
+            "sellers": stats.shrunk_seller_late_rates(filtered, items.loc[items.order_id.isin(filtered.order_id)], 20),
+            "freight": stats.freight_by_region(filtered)}
+
+
+@st.cache_resource(show_spinner="Loading the analyst…")
+def load_analyst(path: str, modified: float, artifacts: str):
+    return Analyst(Path(path), Path(artifacts))
+
+
+@st.cache_resource(show_spinner="Building the product catalogue…")
+def load_recommender(path: str, modified: float):
+    with duckdb.connect(path, read_only=True) as con:
+        items = con.execute("SELECT * FROM fact_items").df()
+    return Recommender(build_catalog(items))
 
 
 def money(value):
@@ -45,11 +76,24 @@ def chart(fig):
         color = ["#A78BFA", "#67E8F9", "#FCD34D", "#F9A8D4"][index % 4]
         if trace.type == "scatter":
             trace.update(line=dict(color=color, width=3), marker=dict(color=color, size=7))
-            if len(fig.data) == 1:
-                trace.update(fill="tozeroy", fillcolor="rgba(167,139,250,0.08)")
         elif trace.type == "bar":
             trace.update(marker_color=color, marker_line_width=0)
     st.plotly_chart(fig, width="stretch", config={"displaylogo": False, "scrollZoom": False})
+
+
+def artifact(name: str) -> dict | None:
+    path = ROOT / "artifacts" / name
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def matches(report: dict | None, metadata) -> bool:
+    return bool(report) and report.get("source") == metadata.source and report.get("database_built_at") == metadata.built_at
+
+
+def caveats(items: list[str]):
+    with st.expander("Limitations of this result", expanded=False):
+        for item in items:
+            st.markdown(f"- {item}")
 
 
 st.sidebar.markdown('<div class="brand"><div class="brand-mark">◈</div><div><div class="brand-name">OLIST</div><div class="brand-sub">Intelligence studio</div></div></div>', unsafe_allow_html=True)
@@ -61,7 +105,7 @@ with st.sidebar.expander("Data connection", expanded=False):
 if not db_path.exists():
     st.title("Marketplace intelligence")
     st.info("Create a database to get started. Use the synthetic demo, or ingest the real Olist CSVs.")
-    st.code("olist demo\n# Or: olist ingest --raw-dir data/raw\n# Then: olist train && olist report", language="bash")
+    st.code("olist demo\n# Or: olist ingest --raw-dir data/raw\n# Then: olist build", language="bash")
     st.stop()
 try:
     data = load_data(str(db_path), db_path.stat().st_mtime)
@@ -70,14 +114,12 @@ except Exception as exc:
     st.stop()
 orders, items = data["fact_orders"], data["fact_items"]
 metadata = data["metadata"].iloc[0]
-if metadata.source == "synthetic":
-    st.warning("SYNTHETIC DEMO · All figures and model results are generated examples, not real Olist findings.")
 source_label = "SYNTHETIC DEMO" if metadata.source == "synthetic" else "HISTORICAL OLIST DATA"
 st.markdown(f'''<div class="hero">
 <div class="hero-eyebrow"><span class="status-dot"></span>Marketplace intelligence / {source_label}</div>
 <h1>A clearer view of your marketplace.</h1>
-<p>From sales momentum to the last mile. Explore the patterns behind performance, with evidence at every step.</p>
-<div class="hero-tags"><span>◈ {len(orders):,} historical orders</span><span>Brazil · BRL</span><span>Validated DuckDB marts</span><span>Time-aware ML</span></div>
+<p>From sales momentum to the next month's forecast. Explore what happened, why it happened, and what comes next — with evidence at every step.</p>
+<div class="hero-tags"><span>◈ {len(orders):,} historical orders</span><span>Brazil · BRL</span><span>Validated DuckDB marts</span><span>Forecasting · Recommendations · Grounded analyst</span></div>
 </div>''', unsafe_allow_html=True)
 
 valid_dates = orders.order_purchase_timestamp.dropna()
@@ -101,7 +143,9 @@ sale_items = filtered_items.loc[filtered_items.order_status.isin(sales.order_sta
 if filtered.empty:
     st.info("No orders match these filters.")
     st.stop()
-page = st.sidebar.radio("Workspace", ["Business overview", "Delivery & reviews", "Customers", "Late-delivery model", "Data quality", "Evidence desk"])
+
+page = st.sidebar.radio("Workspace", ["Business overview", "Delivery & reviews", "Investigation", "Customers", "Repurchase model",
+                                      "Forecasting", "Recommendations", "Late-delivery model", "AI analyst", "Data quality"])
 st.sidebar.divider()
 st.sidebar.caption("Sales = item value excluding freight. Canceled and unavailable orders excluded. Delivery KPIs use valid delivered outcomes only.")
 st.sidebar.caption(f"Built {metadata.built_at[:19]} · {metadata.source.upper()}")
@@ -109,10 +153,14 @@ st.sidebar.markdown("[Dataset: Olist / Kaggle](https://www.kaggle.com/datasets/o
 page_details = {
     "Business overview": ("01", "The big picture", "Sales momentum, category leaders and seller performance."),
     "Delivery & reviews": ("02", "The customer experience", "Delivery friction, satisfaction and regional differences."),
-    "Customers": ("03", "Beyond the first purchase", "Observed repeat behavior and customer acquisition cohorts."),
-    "Late-delivery model": ("04", "Signals before the delay", "A transparent, time-aware delivery-risk experiment."),
-    "Data quality": ("05", "Evidence you can trust", "Data contracts, validation results and source provenance."),
-    "Evidence desk": ("06", "Ask better questions", "Controlled evidence lookups grounded in your actual data."),
+    "Investigation": ("03", "Does the effect survive controls?", "Adjusted regression, shrunk seller rates and freight by region."),
+    "Customers": ("04", "Beyond the first purchase", "Observed repeat behavior and customer acquisition cohorts."),
+    "Repurchase model": ("05", "Who buys again?", "A censoring-aware model of repeat purchase within 90 days."),
+    "Forecasting": ("06", "What comes next?", "Backtested monthly sales forecasts with honest uncertainty."),
+    "Recommendations": ("07", "What should we suggest?", "Popularity and content-based recommendations, evaluated."),
+    "Late-delivery model": ("08", "Signals before the delay", "A transparent, time-aware delivery-risk experiment."),
+    "AI analyst": ("09", "Ask in plain English", "An LLM that may only choose approved tools, always showing evidence."),
+    "Data quality": ("10", "Evidence you can trust", "Data contracts, validation results and source provenance."),
 }
 number, title, subtitle = page_details[page]
 st.markdown(f'<div class="section-heading"><span class="section-number">{number}</span><div><h2>{title}</h2><p>{subtitle}</p></div></div>', unsafe_allow_html=True)
@@ -160,7 +208,7 @@ elif page == "Delivery & reviews":
         chart(px.bar(region, x="customer_state", y="mean_freight_per_item", title="Freight charge per item by customer state"))
     if assoc["available"]:
         st.info(f"Late vs. on-time mean review difference: {assoc['difference']:.2f} points; bootstrap 95% CI [{assoc['ci95'][0]:.2f}, {assoc['ci95'][1]:.2f}]. Samples: {assoc['late_n']:,} late / {assoc['ontime_n']:,} on time. Welch p-value: {assoc['welch_p']:.3g}.")
-    st.caption("Observational association only. Review scores are ordinal; the mean comparison treats them as numeric. Category, region, seller mix and order value may confound the relationship. Bootstrap interval is approximate.")
+    st.caption("Observational association only. Review scores are ordinal; the mean comparison treats them as numeric. Category, region, seller mix and order value may confound the relationship. Bootstrap interval is approximate. The Investigation workspace tests whether the effect survives controls.")
     min_orders = st.slider("Minimum observed orders per seller", 5, 100, 20)
     seller_orders = filtered_items[["seller_id", "order_id"]].drop_duplicates().merge(labeled[["order_id", "is_late"]], on="order_id")
     table = seller_orders.groupby("seller_id", as_index=False).agg(observed_orders=("order_id", "count"), late_orders=("is_late", "sum"))
@@ -169,9 +217,52 @@ elif page == "Delivery & reviews":
     intervals = [binomtest(int(row.late_orders), int(row.observed_orders)).proportion_ci(method="wilson") for row in table.itertuples()]
     table["ci95_low"] = [interval.low for interval in intervals]
     table["ci95_high"] = [interval.high for interval in intervals]
-    st.subheader("Seller delivery watchlist")
+    st.subheader("Seller delivery watchlist (raw rates)")
     st.dataframe(table.sort_values("late_rate", ascending=False), hide_index=True, width="stretch")
-    st.caption("Order-level outcome attributed to each participating seller once. Multi-seller orders do not identify which seller caused a delay. Rates are unadjusted, not proof of seller fault.")
+    st.caption("Order-level outcome attributed to each participating seller once. Multi-seller orders do not identify which seller caused a delay. Rates are unadjusted, not proof of seller fault. The Investigation workspace adds shrinkage.")
+
+elif page == "Investigation":
+    st.markdown("**Question:** is the late-delivery penalty in reviews real, or explained by order value, freight, category and region?")
+    result = adjusted_analysis(str(db_path), db_path.stat().st_mtime, str(start), str(end), tuple(states))
+    adjusted = result["adjusted"]
+    if not adjusted.get("available"):
+        st.info(adjusted.get("reason", "Insufficient data for the adjusted model."))
+    else:
+        left, right, third = st.columns(3)
+        left.metric("Adjusted late effect", f"{adjusted['late_coefficient']:.2f} pts", help="OLS coefficient on review score")
+        right.metric("Unadjusted gap", f"{adjusted['unadjusted_difference']:.2f} pts")
+        third.metric("n", f"{adjusted['n']:,}")
+        st.markdown(f"The adjusted effect is **{adjusted['late_coefficient']:.2f} review points** (95% CI {adjusted['ci95_low']:.2f} to {adjusted['ci95_high']:.2f}), "
+                    f"versus an unadjusted gap of **{adjusted['unadjusted_difference']:.2f}**. "
+                    + (f"Late orders are **{adjusted.get('logit_odds_ratio', float('nan')):.1f}x** more likely to receive a 1-2 star review (95% CI "
+                       f"{adjusted.get('logit_odds_ci95', [float('nan'), float('nan')])[0]:.1f} to {adjusted.get('logit_odds_ci95', [float('nan'), float('nan')])[1]:.1f}). " if adjusted.get("logit_odds_ratio") else "")
+                    + f"Model R²: {adjusted['r_squared']:.2f}.")
+        st.info("Because the adjusted gap barely shrinks, the association is not explained away by value, freight, category or region. That is still not proof of causation: delivery timing is not randomly assigned and sellers or handling are unmeasured.")
+        if adjusted.get("logit_note"):
+            st.caption(adjusted["logit_note"] + (f" Sample size: {adjusted['logit_n']:,}." if adjusted.get("logit_n") else ""))
+        caveats(adjusted["limitations"])
+    st.divider()
+    st.markdown("**Shrunk seller late-delivery rates:** small sellers are pulled toward the marketplace rate so a handful of late orders does not create a false outlier.")
+    sellers = result["sellers"]
+    if sellers.empty:
+        st.info("Not enough delivered orders per seller in this selection.")
+    else:
+        display = sellers.head(15)[["seller_id", "dominant_category", "n", "late", "raw_rate", "shrunk_rate", "marketplace_rate"]]
+        chart(px.bar(display.sort_values("shrunk_rate"), x="shrunk_rate", y="seller_id", orientation="h",
+                     title="Highest shrunk late-delivery rates", hover_data=["n", "raw_rate"]))
+        st.dataframe(display.round(4), hide_index=True, width="stretch")
+        st.caption(f"Marketplace rate {sellers.marketplace_rate.iloc[0]:.2%}; prior strength ≈ {sellers.prior_strength.iloc[0]:.0f} pseudo-orders. Lower-volume sellers move further toward the marketplace rate.")
+    st.divider()
+    st.markdown("**Freight by customer state:** bootstrap 95% intervals. Distance is only a proxy — exact coordinates are not joined here.")
+    freight = result["freight"]
+    if freight.empty:
+        st.info("Not enough orders per state in this selection.")
+    else:
+        fig = go.Figure(go.Bar(x=freight.customer_state, y=freight.mean_freight_per_item,
+                               error_y=dict(type="data", array=(freight.ci95_high - freight.mean_freight_per_item),
+                                            arrayminus=(freight.mean_freight_per_item - freight.ci95_low), color="#67E8F9")))
+        chart(fig.update_layout(title="Mean item freight by customer state", xaxis_title="State", yaxis_title="BRL per item"))
+        st.dataframe(freight.round(2), hide_index=True, width="stretch")
 
 elif page == "Customers":
     counts = sales.groupby("customer_unique_id").order_id.nunique()
@@ -185,18 +276,103 @@ elif page == "Customers":
     if not retention.empty:
         chart(px.imshow(retention, labels=dict(x="Months since first observed purchase", y="Acquisition cohort", color="Purchase rate"),
                         aspect="auto", color_continuous_scale="Teal", zmin=0, zmax=1, title="Customer cohort retention"))
-    st.caption("Future/unobserved cohort cells are blank, not zero. Month 0 is 100% by definition. Recent cohorts have less follow-up. Historical repeat rate is not a repurchase-risk model.")
+    st.caption("Future/unobserved cohort cells are blank, not zero. Month 0 is 100% by definition. Recent cohorts have less follow-up. See the Repurchase model workspace for a time-aware prediction of buying again.")
+
+elif page == "Repurchase model":
+    report = artifact("repurchase_report.json")
+    if not matches(report, metadata):
+        st.info("Build this model first: olist repurchase")
+        st.stop()
+    metrics = report["metrics"]["logistic_regression"]
+    a, b, c, d = st.columns(4)
+    a.metric("Base repeat rate", f"{report['overall_repeat_rate']:.1%}")
+    b.metric("Held-out ROC-AUC", f"{metrics['roc_auc']:.2f}")
+    c.metric("Average precision", f"{metrics['average_precision']:.3f}")
+    d.metric("Top-decile lift", f"{metrics['lift_at_top_decile']:.1f}x")
+    st.markdown(f"**Question:** which customers are likely to buy again? The label is a **second observed purchase within {report['horizon_days']} days** of the first, "
+                f"over **{report['matured_customers']:,}** customers who had the full observation horizon (so recent cohorts are excluded rather than mislabelled).")
+    st.dataframe(pd.DataFrame(report["metrics"]).T, width="stretch")
+    st.caption("Base rate is the naive prevalence; average precision measures rare-event ranking. The top decile repeats at "
+               f"{metrics['top_decile_rate']:.1%} versus the {report['test_repeat_rate']:.1%} test base rate.")
+    calibration = pd.DataFrame(report["calibration"])
+    chart(px.bar(calibration.melt(id_vars="bucket", value_vars=["predicted", "actual"], var_name="series", value_name="rate"),
+                 x="bucket", y="rate", color="series", barmode="group", title="Calibration on the held-out window"))
+    st.caption("Predicted and observed repeat rates per score bucket. The model is reasonably calibrated, so scores can rank customers — but the event is rare and discrimination is modest, so treat scores as priorities, not promises.")
+    caveats(report["limitations"])
+
+elif page == "Forecasting":
+    report = artifact("forecast_report.json")
+    if not matches(report, metadata):
+        st.info("Build the forecast first: olist forecast")
+        st.stop()
+    metrics = report["metrics"]
+    best = min(metrics, key=lambda name: metrics[name]["rmse"])
+    a, b, c = st.columns(3)
+    a.metric(f"Forecast · {report['next_month']}", money(report["forecast"]["calendar_lag_model"]["point"]))
+    b.metric("80% interval", f"{money(report['forecast']['calendar_lag_model']['low_80'])} – {money(report['forecast']['calendar_lag_model']['high_80'])}")
+    c.metric("Best backtest method", best.replace("_", " "))
+    history = pd.DataFrame(report["recent_actuals"])
+    forecast = report["forecast"]["calendar_lag_model"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=history.month, y=history.item_sales, mode="lines+markers", name="Actual", fill="tozeroy", fillcolor="rgba(167,139,250,0.08)"))
+    fig.add_trace(go.Scatter(x=[report["next_month"]], y=[forecast["point"]], mode="markers", name="Forecast", marker=dict(size=14, symbol="diamond")))
+    fig.add_trace(go.Scatter(x=[report["next_month"], report["next_month"]], y=[forecast["low_95"], forecast["high_95"]], mode="lines", name="95% interval", line=dict(width=10, color="rgba(103,232,249,0.25)")))
+    chart(fig.update_layout(title="Recent actuals and next-month forecast", yaxis_title="Item sales (BRL)"))
+    st.markdown(f"**The honest headline:** with only **{report['complete_months']} complete months**, the plain naive last-value forecast "
+                f"(MAPE {metrics['naive_last_value']['mape']:.1%}) is competitive with or better than the calendar/lag model "
+                f"(MAPE {metrics['calendar_lag_model']['mape']:.1%}). Long-term seasonality cannot be trusted from under one full year of history.")
+    st.dataframe(pd.DataFrame(metrics).T, width="stretch")
+    st.caption("Rolling one-month-ahead backtests across every available origin (no random splits). Naive carries the last value forward; seasonal naive repeats the value from twelve months earlier.")
+    st.download_button("Download backtest results", (ROOT / "artifacts/forecast_backtest.csv").read_text(), "forecast_backtest.csv", "text/csv")
+    caveats(report["limitations"])
+
+elif page == "Recommendations":
+    catalogue = load_recommender(str(db_path), db_path.stat().st_mtime)
+    report = artifact("recommender_report.json")
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Recommend similar products to a product**")
+        options = catalogue.catalog.sort_values("orders", ascending=False).head(400).product_id.tolist()
+        product = st.selectbox("Product", options)
+        if product:
+            similar = catalogue.similar_to_product(product, 8)
+            st.dataframe(similar[["product_id", "category", "mean_price", "orders", "score"]].round(3), hide_index=True, width="stretch")
+    with right:
+        st.markdown("**Recommend for a customer**")
+        with duckdb.connect(str(db_path), read_only=True) as con:
+            repeaters = con.execute("""
+                SELECT customer_unique_id, list(product_id) AS products
+                FROM (SELECT DISTINCT customer_unique_id, product_id FROM fact_items WHERE customer_unique_id IS NOT NULL)
+                GROUP BY 1 HAVING count(*) >= 2
+                USING SAMPLE 300 ROWS""").df()
+        if repeaters.empty:
+            st.info("No customers with repeat purchases are available.")
+        else:
+            customer = st.selectbox("Customer with purchase history", repeaters.customer_unique_id.tolist())
+            row = repeaters.loc[repeaters.customer_unique_id.eq(customer)].iloc[0]
+            recommendations = catalogue.for_customer(row.products, 8)
+            st.dataframe(recommendations[["product_id", "category", "mean_price", "orders"]].round(2), hide_index=True, width="stretch")
+            st.caption(f"This customer already bought {len(row.products)} distinct product(s); those are excluded from the suggestions.")
+    st.divider()
+    if matches(report, metadata) and report.get("available"):
+        metrics = report["metrics"]
+        a, b, c = st.columns(3)
+        a.metric("Content MAP@10", f"{metrics['content_based']['map_at_k']:.3f}")
+        b.metric("Popularity MAP@10", f"{metrics['popularity']['map_at_k']:.3f}")
+        c.metric("Evaluable customers", f"{report['customers_with_repeat_history']:,}")
+        st.dataframe(pd.DataFrame(metrics).T, width="stretch")
+        st.caption(f"Temporal holdout at {report['cutoff'][:10]}: train on earlier purchases, test whether later purchases appear in the top-10. "
+                   f"Catalog: {report['catalog_size']:,} products, {report['cold_start_products']} with no category.")
+        caveats(report["limitations"])
+    else:
+        st.info("Build the evaluation metrics first: olist recommend")
 
 elif page == "Late-delivery model":
     st.subheader("Post-checkout delivery-risk experiment")
-    report_path = ROOT / "artifacts/model_report.json"
+    report = artifact("model_report.json")
     model_path = ROOT / "artifacts/late_delivery.joblib"
-    if not report_path.exists() or not model_path.exists():
+    if not matches(report, metadata) or not model_path.exists():
         st.info("Train the models first: olist train")
-        st.stop()
-    report = json.loads(report_path.read_text())
-    if report["source"] != metadata.source or report.get("database_built_at") != metadata.built_at:
-        st.error("Model artifacts do not match this database build. Retrain with this database before scoring.")
         st.stop()
     st.caption(f"Chronological split: {report['split_timestamp'][:10]} · Train: {report['train_orders']:,} · Held-out test: {report['test_orders']:,} · Test late rate: {report['test_late_rate']:.1%}")
     st.dataframe(pd.DataFrame(report["metrics"]).T, width="stretch")
@@ -213,11 +389,38 @@ elif page == "Late-delivery model":
         st.metric("Estimated late probability", f"{probability:.1%}")
         st.dataframe(explain_order(pipeline, row), hide_index=True, width="stretch")
         st.caption("Exact logistic feature contributions in log-odds, relative to the model intercept. Positive terms increase the score; negative terms decrease it. They explain the model, not the causes of delay. Inspection orders may be in training; held-out performance is only the table above.")
-    with st.expander("Model limitations", expanded=True):
-        for limitation in report["limitations"]:
-            st.markdown(f"- {limitation}")
+    caveats(report["limitations"])
 
-elif page == "Data quality":
+elif page == "AI analyst":
+    st.markdown("**Ask a question in plain English.** The analyst may only choose from approved tools that read your validated data and model outputs, then shows the evidence behind its answer. It never writes SQL and says so when the data cannot answer.")
+    try:
+        analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ROOT / "artifacts"))
+    except Exception as exc:
+        st.error(f"The analyst could not start: {exc}")
+        st.stop()
+    if "analyst_turns" not in st.session_state:
+        st.session_state.analyst_turns = []
+    question = st.text_input("Your question", placeholder="Which categories had the biggest sales decline?")
+    suggestions = analyst.suggestions()
+    st.caption("Suggested questions")
+    columns = st.columns(3)
+    for index, suggestion in enumerate(suggestions):
+        if columns[index % 3].button(suggestion, key=f"suggest-{index}"):
+            question = suggestion
+    if question:
+        with st.spinner("Choosing an approved analysis…"):
+            answer = analyst.ask(question)
+        st.session_state.analyst_turns.append(answer)
+    for turn in reversed(st.session_state.analyst_turns):
+        st.divider()
+        st.markdown(f"**Q · {turn['question']}**")
+        st.markdown(f"<div class='insight-strip'><span class='insight-icon'>✧</span><div><strong>ANSWER · planner: {turn['planner']} · tool: {turn['tool'] or 'none'}</strong><p>{escape(turn['answer'])}</p></div></div>", unsafe_allow_html=True)
+        if turn.get("evidence"):
+            with st.expander("Evidence behind this answer", expanded=True):
+                st.json(turn["evidence"], expanded=False)
+        caveats(turn.get("caveats", []))
+
+else:
     st.subheader("Trust starts with the data")
     st.dataframe(data["data_quality"], hide_index=True, width="stretch")
     st.markdown("""**Grain contracts**
@@ -229,29 +432,3 @@ elif page == "Data quality":
 **Hard failures:** conflicting primary keys, missing required columns, orphan foreign keys, invalid monetary values, or broken revenue conservation. Date anomalies and missing attributes remain visible in quality checks; invalid delivery timelines are excluded from the late label.
 """)
     st.json(metadata.to_dict())
-
-else:
-    st.subheader("Evidence desk")
-    st.caption("Controlled evidence lookup — not an LLM. Only approved questions are available; no generated SQL or unsupported claims.")
-    question = st.selectbox("Business question", ["What counts as revenue?", "Are late deliveries associated with poor reviews?", "Which categories lead sales?", "Can we calculate profit or optimize inventory?", "Can we predict who buys again?", "Where is the findings report?"])
-    if question == "What counts as revenue?":
-        st.write(f"The selected window has {money(sales.item_value.sum())} in item sales across {len(sales):,} orders. Freight is excluded. Canceled/unavailable orders are excluded. Payment receipts are stored separately and are not interchangeable with item sales.")
-        st.caption("Evidence: fact_orders.item_value, is_sales_order, item_count; selected purchase/state filters.")
-    elif question == "Are late deliveries associated with poor reviews?":
-        st.json(delivery_association(filtered))
-        st.write("An association is not a causal claim. Unresolved orders and missing reviews are excluded; seller/category/region differences can confound the comparison.")
-    elif question == "Which categories lead sales?":
-        table = sale_items.groupby("category", as_index=False).price.sum().sort_values("price", ascending=False).head(10)
-        st.dataframe(table.rename(columns={"price": "item_sales_brl"}), hide_index=True)
-        st.caption("Evidence: fact_items, summed item price; no duplicated order-level payments.")
-    elif question == "Can we calculate profit or optimize inventory?":
-        st.write("No. Olist does not provide reliable product costs or inventory levels. Sales and freight are not profit.")
-    elif question == "Can we predict who buys again?":
-        st.write("Not in this version. The Customers page measures observed repeat purchasing, not future purchase propensity. That requires its own time-aware prediction target and validation.")
-    else:
-        report_path = ROOT / "artifacts/findings.md"
-        if report_path.exists():
-            st.markdown(report_path.read_text())
-            st.download_button("Download report", report_path.read_text(), "findings.md", "text/markdown")
-        else:
-            st.info("Generate the report with: olist report")

@@ -12,7 +12,7 @@ See `deployment/README.md` for dataset attribution and noncommercial share-alike
 license requirements. Hosting makes the application publicly accessible;
 the underlying Olist data remains historical, not real-time.
 
-A runnable first release: validated multi-table ingestion, a business dashboard, customer cohorts, delivery/review investigation, three late-delivery model comparisons, per-order model explanations, and a generated five-finding evidence report.
+A complete analytics stack on real, messy multi-table data: validated ingestion and grain-safe marts, a business dashboard, customer cohorts, an adjusted delivery/review investigation, a time-aware late-delivery model with explanations, backtested sales forecasting, evaluated product recommendations, a censoring-aware repurchase model, and a grounded analyst that may only use approved tools.
 
 **Synthetic demo results are not real Olist findings.** The app prominently labels its data source. No Kaggle credentials or LLM API keys are needed to try the demo.
 
@@ -50,12 +50,11 @@ product_category_name_translation.csv  # optional; original categories retained 
 
 ```bash
 olist ingest --raw-dir data/raw
-olist train
-olist report
+olist build
 streamlit run app.py
 ```
 
-Re-run **train and report whenever you re-ingest**; artifacts refer to the previous dataset until rebuilt. Ingestion replaces analytical/raw tables transactionally. Failed validation preserves an existing database. DuckDB requires the app to be stopped while you rebuild the database.
+`olist build` re-runs the late-delivery model, the forecast, the recommender evaluation, the repurchase model and the report against the current database. Re-run it whenever you re-ingest; artifacts refer to the previous dataset until rebuilt. Ingestion replaces analytical/raw tables transactionally. Failed validation preserves an existing database. DuckDB requires the app to be stopped while you rebuild the database.
 
 ## Dashboard workspaces
 
@@ -63,12 +62,16 @@ Re-run **train and report whenever you re-ingest**; artifacts refer to the previ
 | --- | --- |
 | Business overview | Monthly sales, order count, AOV, leading categories and sellers |
 | Delivery & reviews | Delivery duration, late rates, freight by state, review association, seller rates with Wilson intervals |
+| Investigation | Adjusted regression (does the delivery effect survive controls?), shrunk seller rates, freight by state with bootstrap intervals |
 | Customers | Observed repeat purchasing and acquisition-cohort retention |
+| Repurchase model | Censoring-aware prediction of a repeat purchase within 90 days, with calibration |
+| Forecasting | Naive, seasonal and calendar/lag forecasts, rolling-origin backtests and uncertainty intervals |
+| Recommendations | Popularity and content-based recommendations with a temporal-holdout evaluation |
 | Late-delivery model | Baseline/logistic/forest comparison, historical risk scoring and exact logistic contributions |
+| AI analyst | An LLM (when a key is set) that may only choose approved tools, and always shows its evidence |
 | Data quality | Validation counts, source metadata and table grains |
-| Evidence desk | Approved evidence lookups and findings report; deliberately not an LLM |
 
-Date and customer-state filters apply to business metrics. Cohorts use full history for selected states, and model evaluation uses its saved full-dataset test window; these exceptions are labeled in the UI.
+Date and customer-state filters apply to business metrics and the Investigation workspace. Cohorts use full history for selected states, and model evaluation uses its saved full-dataset test window; these exceptions are labeled in the UI.
 
 ## Data contracts
 
@@ -95,6 +98,26 @@ An 80/20 purchase-time split is used, not a random split. Training outcomes must
 
 Global permutation importance measures held-out average-precision changes. Per-order logistic contributions are additive log-odds terms plus the model intercept, **not causal explanations**. Only locally generated trusted `joblib` artifacts should be loaded.
 
+## Investigation design
+
+`stats.delivery_review_adjusted` fits an OLS model of review score on a late indicator with controls for log order value, log freight, category, customer state and month, using HC1 robust standard errors. Rare category/state levels are collapsed. A logistic model on a 1-2 star outcome is reported as a robustness check (estimated on a capped sample for interactive speed). Because late delivery is not randomly assigned, the coefficient is an adjusted association, not a causal effect. Seller late rates use beta-binomial shrinkage so low-volume sellers move toward the marketplace rate.
+
+## Forecasting design
+
+Complete calendar months only; leading and trailing partial months are dropped. Forecasts are evaluated with rolling-origin, one-month-ahead backtests (never random splits). Three methods share the target: a naive last-value baseline, a seasonal-naive baseline, and a calendar/lag Ridge model. Intervals are empirical residual quantiles pooled from the backtests. With under two years of complete months, seasonality is weakly identified and the naive baseline is often competitive; the UI states this explicitly rather than hiding it.
+
+## Recommendation design
+
+A popularity baseline and a content-based model (category plus scaled physical attributes, cosine similarity computed on demand so no product-by-product matrix is stored). Evaluation is a temporal holdout: build from earlier purchases, then test whether a customer's later purchases appear in the top-K, comparing content-based against popularity with recall/precision/MAP@K. Cold-start products and unknown customers fall back to popularity. Olist's sparse repeat purchasing means few customers are evaluable and collaborative filtering is not attempted.
+
+## Repurchase design
+
+Target: a second observed purchase within 90 days of the first. Only customers observed for the full horizon are labelled, so recent cohorts are excluded rather than mislabelled. Features come from the first order and its calendar context. A prevalence baseline and an (unweighted, therefore calibrated) logistic model are compared on a temporal split with ROC-AUC, average precision, Brier score and top-decile lift, plus a calibration curve.
+
+## Grounded analyst design
+
+`Analyst` exposes a whitelist of parameterized tools that read the validated marts and the versioned model/forecast/report artifacts. Routing is deterministic by default. If `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set, an LLM may choose a tool and parameters as JSON; anything outside the whitelist is rejected, and the model never writes SQL or free-form answers. Every answer returns structured evidence and caveats, and unsupported topics (profit, inventory, browsing, marketing spend, demographics) are refused with a reason. Set `OPENAI_MODEL`/`ANTHROPIC_MODEL` to override the default model.
+
 Artifacts:
 
 ```text
@@ -103,6 +126,12 @@ artifacts/findings.md
 artifacts/model_report.json
 artifacts/late_delivery.joblib
 artifacts/test_predictions.csv
+artifacts/forecast_report.json
+artifacts/forecast_backtest.csv
+artifacts/recommender_report.json
+artifacts/repurchase_report.json
+artifacts/repurchase.joblib
+artifacts/repurchase_predictions.csv
 ```
 
 ## Tests
@@ -112,16 +141,24 @@ olist demo
 python -m unittest discover -s tests -v
 ```
 
-Tests cover grain and monetary conservation (including intentionally multi-payment demo orders), conflicting keys, orphans, date semantics, leakage feature exclusion, model/report generation, cohorts and every dashboard workspace.
+Tests cover grain and monetary conservation (including intentionally multi-payment demo orders), conflicting keys, orphans, date semantics, leakage feature exclusion, model/report generation, cohorts, forecast backtesting and uncertainty, recommender exclusion/cold-start, repurchase horizon and censoring, investigation shrinkage and bounds, and grounded-analyst routing/refusals, plus every dashboard workspace.
 
-## Staged roadmap — not yet implemented
+## Current results (real Olist data)
 
-1. **Deeper investigation:** adjusted category/value/region regressions and stratified sensitivity checks. Current comparisons are unadjusted and do not establish causation.
-2. **Forecasting:** naïve and seasonal baselines first, rolling-origin backtests, calendar/lag model, and prediction intervals. Short history and partial months must be handled explicitly.
-3. **Recommendations:** popularity baseline and attribute-based ranking; evaluate temporal holdouts and cold-start behavior. Only attempt collaborative filtering if observed overlap supports it. Product IDs have no readable product names in this dataset.
-4. **Repurchase prediction:** define a fixed follow-up horizon and censoring-aware labels before training a model.
-5. **Grounded AI analyst:** optional LLM API using a whitelist of parameterized query tools and versioned model outputs, with citations, refusal boundaries and evaluation. The evidence desk provides a deterministic starting point without claiming to be an AI assistant.
+- **Sales foundation:** R$13.49M item sales across 98,199 orders; AOV R$137.42; 6.8% of valid delivered orders late.
+- **Investigation:** the adjusted late-delivery review penalty (−1.96 points) barely differs from the unadjusted gap (−2.02), so value, freight, category and region do not explain it away. Still observational.
+- **Forecasting:** with 19 complete months, the naive baseline (MAPE 7.0%) beats the calendar/lag model (13.1%). A short history cannot support confident seasonality.
+- **Recommendations:** content-based recall@10 (2.2%) edges popularity (1.7%) on 417 evaluable repeat customers; absolute quality is low on sparse data.
+- **Repurchase:** 90-day repeat base rate 2.3%; logistic ROC-AUC 0.60 with 1.8x top-decile lift and reasonable calibration — usable for ranking, not for promising outcomes.
+
+## Future work
+
+1. **Threshold selection and monitoring** for the late-delivery model using a validation slice (never the held-out test), plus drift checks.
+2. **Richer forecasting** when more history exists: proper seasonal models, promotion/holiday regressors, and model-based predictive intervals.
+3. **Basket-aware recommendations** and a small collaborative-filtering experiment, reported only if observed overlap supports it.
+4. **Causal designs** (matching or difference-in-differences around seller or logistics changes) to move beyond adjusted association.
+5. **Analyst evaluation harness** with a labelled question set, so grounding and refusal behaviour are measured rather than assumed.
 
 ## Limitations
 
-Olist is historical, geographically specific and observational. It does not reliably provide product costs, inventory or browsing activity. This project cannot calculate profit, optimize stock, infer browsing funnels, or prove why revenue/delivery outcomes changed. Delivered-only ML labels introduce selection bias; a maturity buffer is not a complete censoring solution. Seller watchlists attribute shared order outcomes, not seller responsibility. No personal details or credentials are required or sent to an external service.
+Olist is historical, geographically specific and observational. It does not reliably provide product costs, inventory or browsing activity. This project cannot calculate profit, optimize stock, infer browsing funnels, or prove why revenue/delivery outcomes changed. Delivered-only ML labels introduce selection bias; a maturity buffer is not a complete censoring solution. Seller watchlists attribute shared order outcomes, not seller responsibility. Forecasts cover item sales only and are not demand forecasts. Recommendations and repurchase predictions rank, they do not promise. No personal details or credentials are required, and without an API key the analyst runs entirely deterministically.

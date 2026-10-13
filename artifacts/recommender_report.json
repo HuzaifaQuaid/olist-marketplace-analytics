@@ -1,0 +1,32 @@
+{
+  "available": true,
+  "k": 10,
+  "cutoff": "2018-05-24 10:43:37",
+  "customers_with_repeat_history": 417,
+  "train_purchases": 89680,
+  "test_purchases": 22421,
+  "metrics": {
+    "popularity": {
+      "evaluable_customers": 417,
+      "recall_at_k": 0.016786570743405275,
+      "precision_at_k": 0.0016786570743405277,
+      "map_at_k": 0.007360778044231282
+    },
+    "content_based": {
+      "evaluable_customers": 417,
+      "recall_at_k": 0.02158273381294964,
+      "precision_at_k": 0.002398081534772182,
+      "map_at_k": 0.010658140154543033
+    }
+  },
+  "catalog_size": 32729,
+  "cold_start_products": 600,
+  "limitations": [
+    "Olist has very little repeat purchasing, so only a small share of customers can be evaluated and results are unstable.",
+    "Both baselines ignore price, availability and business constraints; a real system needs ranking objectives and online tests.",
+    "Similarity uses category and physical attributes only: there is no browsing, click or basket-overlap signal.",
+    "Cold-start products with no category or attributes fall back to popularity."
+  ],
+  "source": "olist",
+  "database_built_at": "2026-10-12T22:19:43.718146"
+}
