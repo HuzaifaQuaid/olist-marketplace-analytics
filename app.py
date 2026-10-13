@@ -450,7 +450,7 @@ elif page == "Customers":
     retention = cohorts(cohort_orders)
     if not retention.empty:
         chart(px.imshow(retention, labels=dict(x="Months since first observed purchase", y="Acquisition cohort", color="Purchase rate"),
-                        aspect="auto", color_continuous_scale=["#FFF4EE", "#E8A397", "#A93250", "#76243F"], zmin=0, zmax=1, title="Customer cohort retention"))
+                        aspect="auto", color_continuous_scale=[(0, "#D6A0AA"), (0.01, "#CA8595"), (0.05, "#B96279"), (0.2, "#A64564"), (0.6, "#8F2945"), (1, "#76243F")], zmin=0, zmax=1, title="Customer cohort retention"))
     st.caption("Future/unobserved cohort cells are blank, not zero. Month 0 is 100% by definition. Recent cohorts have less follow-up. See the Repurchase model workspace for a time-aware prediction of buying again.")
 
 elif page == "Repurchase model":
