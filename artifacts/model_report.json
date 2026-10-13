@@ -1,0 +1,92 @@
+{
+  "candidate": "logistic_regression",
+  "source": "olist",
+  "train_orders": 75128,
+  "test_orders": 19294,
+  "split_timestamp": "2018-05-26 18:17:10.200000",
+  "train_start": "2016-09-15 12:16:38",
+  "test_end": "2018-08-29 15:00:37",
+  "test_late_rate": 0.03493313983621851,
+  "threshold": 0.5,
+  "metrics": {
+    "prevalence_baseline": {
+      "roc_auc": 0.5,
+      "average_precision": 0.03493313983621851,
+      "brier_score": 0.03501835448300809,
+      "precision_at_0.5": 0.0,
+      "recall_at_0.5": 0.0
+    },
+    "logistic_regression": {
+      "roc_auc": 0.6909711885691338,
+      "average_precision": 0.07337160545758453,
+      "brier_score": 0.03710343669992879,
+      "precision_at_0.5": 0.2857142857142857,
+      "recall_at_0.5": 0.002967359050445104
+    },
+    "random_forest": {
+      "roc_auc": 0.48370988407857285,
+      "average_precision": 0.04028470331425391,
+      "brier_score": 0.034682733941117046,
+      "precision_at_0.5": 0.0,
+      "recall_at_0.5": 0.0
+    }
+  },
+  "importance": [
+    {
+      "feature": "promised_days",
+      "average_precision_drop": 0.03962334880831288
+    },
+    {
+      "feature": "customer_state",
+      "average_precision_drop": 0.013273354956910354
+    },
+    {
+      "feature": "seller_state",
+      "average_precision_drop": 0.009219613825633839
+    },
+    {
+      "feature": "mean_weight_g",
+      "average_precision_drop": 0.001004789150272789
+    },
+    {
+      "feature": "item_count",
+      "average_precision_drop": 0.0009112007222827512
+    },
+    {
+      "feature": "category",
+      "average_precision_drop": 0.0007221632426232721
+    },
+    {
+      "feature": "seller_count",
+      "average_precision_drop": 0.0006990652585938978
+    },
+    {
+      "feature": "item_value",
+      "average_precision_drop": 0.0004548163681017181
+    },
+    {
+      "feature": "purchase_month",
+      "average_precision_drop": -0.00012987297039512014
+    },
+    {
+      "feature": "purchase_weekday",
+      "average_precision_drop": -0.00022360301150312623
+    },
+    {
+      "feature": "freight_value",
+      "average_precision_drop": -0.0007362223065811357
+    },
+    {
+      "feature": "interstate_share",
+      "average_precision_drop": -0.02112391686941118
+    }
+  ],
+  "limitations": [
+    "Delivered orders only: canceled and unresolved orders are not represented.",
+    "45-day maturity buffer reduces but does not eliminate censoring.",
+    "Scores are not guaranteed calibrated outside the historical population.",
+    "Feature importance is global, not causal or a per-order explanation.",
+    "Features assume item and promised-date information is available immediately after checkout."
+  ],
+  "database_built_at": "2026-10-12T22:19:43.718146"
+}

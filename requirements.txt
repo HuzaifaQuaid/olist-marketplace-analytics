@@ -1,0 +1,9 @@
+# Cloud runtime; model serialization requires the training scikit-learn version.
+duckdb==1.5.6
+pandas==3.0.6
+numpy==2.5.4
+streamlit==1.65.0
+plotly==6.9.0
+scikit-learn==1.9.1
+scipy==1.18.1
+joblib==1.6.0
