@@ -15,6 +15,8 @@
     linear-gradient(145deg, #fff9f5 0%, #f9f0ed 48%, #f8e9e8 100%);
   color: var(--ink);
 }
+[data-testid="stAppViewContainer"] [data-testid="stCaptionContainer"] { color: #624954; }
+[data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] { color: #49343e; }
 .block-container { padding-top: 2rem; max-width: 1540px; padding-bottom: 4rem; }
 [data-testid="stHeader"] { background: #fff9f4c9; backdrop-filter: blur(14px); }
 [data-testid="stSidebar"] {
@@ -69,6 +71,17 @@
 [data-testid="stPlotlyChart"] { background: linear-gradient(140deg, #fffefd, #fff8f4 55%, #f9eeee); border: 1px solid #ead5d7;
   border-radius: 18px; padding: 12px; margin: 10px 0; animation: rise-in .7s ease both; box-shadow: 0 8px 30px #7133470c; }
 [data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; border: 1px solid #e5cfd2; }
+[data-testid="stDataFrame"] * { color: #38232d; }
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stDateInput"] input,
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input { background: #fffdfb; color: #38232d; border-color: #dfc5ca; }
+[data-testid="stRadio"] label, [data-testid="stCheckbox"] label { color: #49343e !important; }
+[data-testid="stSlider"] [data-testid="stTickBarMin"],
+[data-testid="stSlider"] [data-testid="stTickBarMax"] { color: #624954; }
+[data-testid="stExpander"] { border-color: #e6d0d3; border-radius: 12px; }
+[data-testid="stExpander"] summary { color: #49343e; }
 [data-testid="stSidebar"] [role="radiogroup"] { gap: 5px; }
 [data-testid="stSidebar"] [role="radiogroup"] label { padding: 9px 12px; border-radius: 10px; transition: background .2s ease; }
 [data-testid="stSidebar"] [role="radiogroup"] label:hover { background: #c43e5c12; }

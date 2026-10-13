@@ -164,6 +164,11 @@ def chart(fig):
                       transition=dict(duration=450), legend=dict(orientation="h", y=-.2))
     fig.update_xaxes(gridcolor="rgba(111,65,79,0.10)", zerolinecolor="rgba(111,65,79,0.18)")
     fig.update_yaxes(gridcolor="rgba(111,65,79,0.10)", zerolinecolor="rgba(111,65,79,0.18)")
+    # Plotly's dark template can retain pale labels on the light chart cards.
+    # Explicit axis, legend, and hover colors keep every chart readable.
+    fig.update_xaxes(tickfont=dict(color="#624954"), title_font=dict(color="#624954"))
+    fig.update_yaxes(tickfont=dict(color="#624954"), title_font=dict(color="#624954"))
+    fig.update_layout(legend=dict(font=dict(color="#49343e")), hoverlabel=dict(font_color="#34212b"))
     for index, trace in enumerate(fig.data):
         color = ["#9B2F4A", "#D45465", "#E99A70", "#B8798E"][index % 4]
         # Plotly category axes otherwise expose source keys such as construction_tools_garden.
