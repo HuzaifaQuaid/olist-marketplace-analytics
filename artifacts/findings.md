@@ -16,7 +16,7 @@ Source: **OLIST**. Historical Olist data; not current marketplace performance.
 
 ## Investigation: does the delivery effect survive controls?
 
-After controlling for order value, freight, category, state and month, late delivery is associated with a review-score change of **-1.96 points** (95% CI -1.99 to -1.92; n=95,824), close to the unadjusted gap of -2.02. The odds of a 1-2 star review are **15.9x** higher for late orders. The association is robust but still observational: delivery timing is not randomly assigned.
+After controlling for order value, freight, category, state and month, late delivery is associated with a review-score change of **-1.98 points** (95% CI -2.02 to -1.95; n=95,824), close to the unadjusted gap of -2.02. The odds of a 1-2 star review are **16.6x** higher for late orders. The association is robust but still observational: delivery timing is not randomly assigned.
 
 ## Later stages
 

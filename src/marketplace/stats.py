@@ -1,10 +1,18 @@
-"""Adjusted investigation: does the late-delivery/review association survive controls?"""
+"""Adjusted investigation: does the late-delivery/review association survive controls?
+
+Implemented with numpy/scipy/sklearn only so the dashboard has no heavyweight
+stats dependency: OLS with HC1 robust standard errors and a near-unpenalised
+logistic check, both on the same design matrix.
+"""
 import numpy as np
 import pandas as pd
-import statsmodels.formula.api as smf
+from scipy.stats import norm
+from sklearn.linear_model import LogisticRegression
 
 MAX_CATEGORIES = 40
 MAX_STATES = 27
+LOGIT_SAMPLE = 30000
+NUMERIC = ["late", "log_value", "log_freight"]
 
 
 def _prepare(orders: pd.DataFrame) -> pd.DataFrame:
@@ -12,8 +20,8 @@ def _prepare(orders: pd.DataFrame) -> pd.DataFrame:
     frame = frame.loc[frame.item_value.gt(0) & frame.order_purchase_timestamp.notna()].copy()
     if frame.empty:
         return frame
-    frame["late"] = frame.is_late.astype(int)
-    frame["low_review"] = (frame.review_score <= 2).astype(int)
+    frame["late"] = frame.is_late.astype(float)
+    frame["low_review"] = (frame.review_score <= 2).astype(float)
     frame["log_value"] = np.log1p(frame.item_value)
     frame["log_freight"] = np.log1p(frame.freight_value)
     frame["month"] = frame.order_purchase_timestamp.dt.month.astype(int)
@@ -24,24 +32,65 @@ def _prepare(orders: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def _dummy_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    return pd.get_dummies(frame[["month", "category", "customer_state"]], drop_first=True, dtype=float)
+
+
+def _design(frame: pd.DataFrame, reference: list | None = None) -> tuple[np.ndarray, list[str]]:
+    """Intercept + scaled-free numerics + dummies, with constant columns dropped for identifiability."""
+    dummies = _dummy_columns(frame)
+    if reference is not None:
+        dummies = dummies.reindex(columns=reference, fill_value=0.0)
+    names = ["intercept", *NUMERIC, *dummies.columns]
+    matrix = np.column_stack([np.ones(len(frame)), frame[NUMERIC].to_numpy(dtype=float), dummies.to_numpy(dtype=float)])
+    keep = [index for index in range(matrix.shape[1]) if index < 1 + len(NUMERIC) or matrix[:, index].std() > 0]
+    return matrix[:, keep], [names[index] for index in keep]
+
+
+def _ols_hc1(matrix: np.ndarray, target: np.ndarray) -> dict:
+    beta, *_ = np.linalg.lstsq(matrix, target, rcond=None)
+    residual = target - matrix @ beta
+    n, k = matrix.shape
+    gram_inverse = np.linalg.pinv(matrix.T @ matrix)
+    meat = matrix.T @ (matrix * (residual ** 2)[:, None])
+    covariance = gram_inverse @ meat @ gram_inverse * (n / (n - k))
+    standard_error = np.sqrt(np.diag(covariance))
+    t_stat = beta / standard_error
+    p_value = 2 * (1 - norm.cdf(np.abs(t_stat)))
+    total = float(((target - target.mean()) ** 2).sum())
+    r_squared = 1 - float((residual ** 2).sum()) / total if total else 0.0
+    return {"beta": beta, "se": standard_error, "p": p_value, "r_squared": r_squared}
+
+
+def _logit(matrix: np.ndarray, target: np.ndarray) -> dict:
+    # Very light L2 keeps near-MLE estimates while guaranteeing identifiability.
+    model = LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs")
+    model.fit(matrix, target)
+    beta = np.concatenate([model.intercept_, model.coef_[0]])
+    probability = model.predict_proba(matrix)[:, 1]
+    weights = probability * (1 - probability)
+    covariance = np.linalg.pinv(matrix.T @ (matrix * weights[:, None]))
+    return {"beta": beta, "se": np.sqrt(np.diag(covariance))}
+
+
 def delivery_review_adjusted(orders: pd.DataFrame) -> dict:
-    """OLS on the numeric score plus a logistic robustness check, both with HC1 robust errors."""
     frame = _prepare(orders)
     if len(frame) < 300 or frame.late.nunique() < 2:
         return {"available": False, "reason": "Not enough valid delivered orders with reviews."}
-    formula = "review_score ~ late + log_value + log_freight + C(category) + C(customer_state) + C(month)"
-    try:
-        model = smf.ols(formula, data=frame).fit(cov_type="HC1")
-    except Exception as exc:  # singular or unbalanced design
-        return {"available": False, "reason": f"Adjusted review model could not be estimated: {exc}"}
-    confidence = model.conf_int().loc["late"]
+    matrix, names = _design(frame)
+    if np.linalg.matrix_rank(matrix) < matrix.shape[1]:
+        return {"available": False, "reason": "The adjusted design is rank deficient; too few observations per level."}
+    late_index = names.index("late")
+    score = frame.review_score.to_numpy(dtype=float)
+    fit = _ols_hc1(matrix, score)
+    beta, se, p_value = fit["beta"], fit["se"], fit["p"]
     unadjusted = frame.groupby("late").review_score.mean()
-    result = {"available": True, "n": int(len(frame)), "r_squared": float(model.rsquared),
-              "method": "OLS on numeric review score; HC1 robust standard errors; controls for order value, freight, category, state and month.",
-              "late_coefficient": float(model.params["late"]), "ci95_low": float(confidence[0]), "ci95_high": float(confidence[1]),
-              "p_value": float(model.pvalues["late"]),
-              "unadjusted_late_mean": float(unadjusted.get(1, np.nan)), "unadjusted_ontime_mean": float(unadjusted.get(0, np.nan)),
-              "unadjusted_difference": float(unadjusted.get(1, np.nan) - unadjusted.get(0, np.nan)),
+    result = {"available": True, "n": int(len(frame)), "r_squared": round(fit["r_squared"], 4),
+              "method": "OLS on numeric review score with HC1 robust standard errors; controls for order value, freight, category, state and month.",
+              "late_coefficient": float(beta[late_index]), "ci95_low": float(beta[late_index] - 1.96 * se[late_index]),
+              "ci95_high": float(beta[late_index] + 1.96 * se[late_index]), "p_value": float(p_value[late_index]),
+              "unadjusted_late_mean": float(unadjusted.get(1.0, np.nan)), "unadjusted_ontime_mean": float(unadjusted.get(0.0, np.nan)),
+              "unadjusted_difference": float(unadjusted.get(1.0, np.nan) - unadjusted.get(0.0, np.nan)),
               "late_rate": float(frame.late.mean()),
               "limitations": ["This is an observational association. Late delivery is not randomly assigned, so the coefficient does not prove causation.",
                               "Order value, freight and geography are only partial proxies: seller identity, product fragility and handling are unmeasured.",
@@ -49,13 +98,16 @@ def delivery_review_adjusted(orders: pd.DataFrame) -> dict:
                               "Rare category and state levels are collapsed into 'other' to keep the design stable."]}
     try:
         # The rare-event logistic check is estimated on a capped sample for interactive speed.
-        logistic_frame = frame if len(frame) <= 30000 else frame.sample(30000, random_state=42)
-        logistic = smf.logit("low_review ~ late + log_value + log_freight + C(category) + C(customer_state) + C(month)", data=logistic_frame).fit(disp=False, maxiter=100)
-        interval = np.exp(logistic.conf_int().loc["late"])
-        result["logit_odds_ratio"] = float(np.exp(logistic.params["late"]))
-        result["logit_odds_ci95"] = [float(interval[0]), float(interval[1])]
-        result["logit_p_value"] = float(logistic.pvalues["late"])
-        result["logit_n"] = int(len(logistic_frame))
+        sample = frame if len(frame) <= LOGIT_SAMPLE else frame.sample(LOGIT_SAMPLE, random_state=42)
+        sample_matrix, sample_names = _design(sample, reference=list(_dummy_columns(frame).columns))
+        # Drop the design's intercept column: sklearn fits its own, and two intercepts are collinear.
+        fit = _logit(sample_matrix[:, 1:], sample.low_review.to_numpy(dtype=float))
+        index = sample_names.index("late")
+        result["logit_odds_ratio"] = float(np.exp(fit["beta"][index]))
+        result["logit_odds_ci95"] = [float(np.exp(fit["beta"][index] - 1.96 * fit["se"][index])),
+                                     float(np.exp(fit["beta"][index] + 1.96 * fit["se"][index]))]
+        result["logit_p_value"] = float(2 * (1 - norm.cdf(abs(fit["beta"][index] / fit["se"][index]))))
+        result["logit_n"] = int(len(sample))
         result["logit_note"] = "Odds of a review score of 1-2 for late versus on-time orders, holding the same controls; estimated on a capped random sample for speed."
     except Exception as exc:
         result["logit_note"] = f"Logistic check unavailable: {exc}"
