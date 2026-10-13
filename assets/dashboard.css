@@ -56,6 +56,20 @@
 .insight-icon { color: #c4b5fd; font-size: 23px; }
 .insight-strip strong { color: #e2dcff; font-size: 13px; }
 .insight-strip p { color: #aabbd4; margin: 4px 0 0; font-size: 13px; }
+.analyst-question { color: #9baac7; font-size: 11px; line-height: 1.6; margin: 2px 0 14px; }
+.analyst-question span { color: #67e8f9; font-size: 9px; font-weight: 800; letter-spacing: 1.6px; }
+.analyst-question strong { color: #e7ecfa; font-size: 14px; font-weight: 600; }
+.analyst-answer { position: relative; overflow: hidden; padding: 20px 22px; margin: 8px 0 16px; border-radius: 17px;
+  background: radial-gradient(ellipse at 100% 0%, #38bdf81c, transparent 48%), linear-gradient(115deg, #302858, #1a2940 72%, #15353e);
+  border: 1px solid #a78bfa38; box-shadow: 0 12px 34px #070b1780; animation: rise-in .45s ease both; }
+.analyst-answer::after { content: '✦'; position: absolute; right: 20px; top: 8px; color: #a78bfa17; font-size: 82px; line-height: 1; pointer-events: none; }
+.analyst-answer-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+.analyst-sparkle { color: #67e8f9; font-size: 18px; }
+.analyst-label { color: #c4b5fd; font-size: 10px; font-weight: 800; letter-spacing: 1.6px; }
+.analyst-status { margin-left: auto; padding: 4px 9px; border: 1px solid #67e8f933; border-radius: 99px; background: #67e8f90c; color: #a9edf4; font-size: 10px; }
+.analyst-answer-copy { position: relative; z-index: 1; max-width: 920px; color: #f1f3ff; font-size: clamp(15px, 1.5vw, 18px); font-weight: 500; line-height: 1.65; }
+[data-testid="stVerticalBlockBorderWrapper"] { border-color: #ffffff14 !important; border-radius: 18px !important; background: linear-gradient(145deg, #151c30a8, #111729a8); }
+.analyst-answer + div [data-testid="stMetric"] { padding: 14px; }
 @keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 700px) { .hero { padding: 24px; border-radius: 18px; } .block-container { padding-left: 1rem; padding-right: 1rem; } }

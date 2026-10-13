@@ -96,6 +96,57 @@ def caveats(items: list[str]):
             st.markdown(f"- {item}")
 
 
+def render_analyst_evidence(evidence: dict):
+    """Show compact evidence visually, while retaining full detail on demand."""
+    if not evidence:
+        st.caption("No supporting data was returned for this answer.")
+        return
+
+    scalar_items = [(key, value) for key, value in evidence.items()
+                    if isinstance(value, (str, int, float, bool)) and value is not None]
+    if scalar_items:
+        cols = st.columns(min(len(scalar_items), 4))
+        for index, (key, value) in enumerate(scalar_items[:4]):
+            label = key.replace("_", " ").title()
+            if isinstance(value, float):
+                display = f"{value:,.3f}" if abs(value) < 1 else f"{value:,.2f}"
+            elif isinstance(value, bool):
+                display = "Yes" if value else "No"
+            else:
+                display = str(value)
+            cols[index % len(cols)].metric(label, display)
+
+    for key, value in evidence.items():
+        label = key.replace("_", " ").title()
+        if isinstance(value, list) and value and all(isinstance(row, dict) for row in value):
+            with st.expander(f"📊 {label} · {len(value)} rows", expanded=True):
+                st.dataframe(pd.DataFrame(value), hide_index=True, width="stretch")
+        elif isinstance(value, dict):
+            # Turn metric-like nested dictionaries into readable metric tiles.
+            pairs = [(name, item) for name, item in value.items()
+                     if isinstance(item, (str, int, float, bool)) and item is not None]
+            if pairs:
+                with st.expander(f"✦ {label}", expanded=False):
+                    metric_cols = st.columns(min(len(pairs), 4))
+                    for index, (name, item) in enumerate(pairs):
+                        shown = f"{item:,.3f}" if isinstance(item, float) and abs(item) < 1 else (
+                            f"{item:,.2f}" if isinstance(item, float) else str(item))
+                        metric_cols[index % len(metric_cols)].metric(name.replace("_", " ").title(), shown)
+                    remaining = {name: item for name, item in value.items()
+                                 if not isinstance(item, (str, int, float, bool))}
+                    if remaining:
+                        st.json(remaining, expanded=False)
+            else:
+                with st.expander(f"✦ {label}", expanded=False):
+                    st.json(value, expanded=False)
+        elif isinstance(value, list) and value:
+            with st.expander(f"Details · {label}", expanded=False):
+                st.write(value)
+        elif isinstance(value, str) and len(value) > 100:
+            with st.expander(f"Details · {label}", expanded=False):
+                st.write(value)
+
+
 st.sidebar.markdown('<div class="brand"><div class="brand-mark">◈</div><div><div class="brand-name">OLIST</div><div class="brand-sub">Intelligence studio</div></div></div>', unsafe_allow_html=True)
 with st.sidebar.expander("Data connection", expanded=False):
     candidates = [ROOT / "data/olist.duckdb", ROOT / "data/demo.duckdb", ROOT / "deployment/olist.duckdb"]
@@ -407,7 +458,7 @@ elif page == "Late-delivery model":
     caveats(report["limitations"])
 
 elif page == "AI analyst":
-    st.markdown("**Ask a question in plain English.** The analyst may only choose from approved tools that read your validated data and model outputs, then shows the evidence behind its answer. It never writes SQL and says so when the data cannot answer.")
+    st.markdown("**Ask a question in plain English.** Get a clear takeaway, the numbers behind it, and the boundaries of what the data can tell us.")
     try:
         analyst = load_analyst(str(db_path), db_path.stat().st_mtime, str(ARTIFACTS))
     except Exception as exc:
@@ -415,25 +466,35 @@ elif page == "AI analyst":
         st.stop()
     if "analyst_turns" not in st.session_state:
         st.session_state.analyst_turns = []
-    question = st.text_input("Your question", placeholder="Which categories had the biggest sales decline?")
+    question = st.text_input("Your question", placeholder="Which categories had the biggest sales decline?", key="analyst_question_input")
     suggestions = analyst.suggestions()
     st.caption("Suggested questions")
     columns = st.columns(3)
     for index, suggestion in enumerate(suggestions):
         if columns[index % 3].button(suggestion, key=f"suggest-{index}"):
             question = suggestion
-    if question:
+    if question and st.session_state.get("analyst_submitted_question") != question:
         with st.spinner("Choosing an approved analysis…"):
             answer = analyst.ask(question)
         st.session_state.analyst_turns.append(answer)
+        st.session_state.analyst_submitted_question = question
     for turn in reversed(st.session_state.analyst_turns):
-        st.divider()
-        st.markdown(f"**Q · {turn['question']}**")
-        st.markdown(f"<div class='insight-strip'><span class='insight-icon'>✧</span><div><strong>ANSWER · planner: {turn['planner']} · tool: {turn['tool'] or 'none'}</strong><p>{escape(turn['answer'])}</p></div></div>", unsafe_allow_html=True)
-        if turn.get("evidence"):
-            with st.expander("Evidence behind this answer", expanded=True):
-                st.json(turn["evidence"], expanded=False)
-        caveats(turn.get("caveats", []))
+        with st.container(border=True):
+            st.markdown(f"<div class='analyst-question'><span>YOU ASKED</span><br><strong>{escape(turn['question'])}</strong></div>", unsafe_allow_html=True)
+            status = "Grounded in project data" if turn.get("tool") else "Outside the approved analyses"
+            st.markdown(f"<div class='analyst-answer'><div class='analyst-answer-top'><span class='analyst-sparkle'>✦</span><span class='analyst-label'>THE TAKEAWAY</span><span class='analyst-status'>{escape(status)}</span></div><div class='analyst-answer-copy'>{escape(turn['answer'])}</div></div>", unsafe_allow_html=True)
+            if turn.get("evaluation_note"):
+                st.info(turn["evaluation_note"], icon="📌")
+            evidence = turn.get("evidence", {})
+            if evidence:
+                st.markdown("#### The evidence")
+                render_analyst_evidence(evidence)
+            if turn.get("caveats"):
+                with st.expander("⚠️ How to interpret this", expanded=False):
+                    for item in turn["caveats"]:
+                        st.markdown(f"- {item}")
+            with st.expander("About this answer", expanded=False):
+                st.caption(f"Approved analysis: `{turn.get('tool') or 'none'}` · Answer planner: `{turn.get('planner', 'unknown')}`. The analyst selects a fixed project tool; it does not generate SQL.")
 
 else:
     st.subheader("Trust starts with the data")
